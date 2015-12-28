@@ -1,0 +1,47 @@
+Name: reflex-openlayers
+Version: 3.12.1
+Synopsis: Reflex bindings to OpenLayers
+Description: Bindings to the OpenLayers JavaScript library for use with Reflex-DOM
+License: BSD3
+License-file: LICENSE
+Author: Alberto Valverde
+Maintainer: alberto@toscat.net
+Stability: Experimental
+Category: FRP
+Build-type: Simple
+Cabal-version: >=1.10
+
+library
+  hs-source-dirs: src
+  build-depends:
+    base,
+    reflex,
+    ghcjs-base,
+    ghcjs-dom == 0.2.*,
+    reflex-dom,
+    containers,
+    transformers,
+    data-default,
+    file-embed,
+    lens,
+    bytestring
+  exposed-modules:
+      Reflex.OpenLayers
+    , Reflex.OpenLayers.Source
+    , Reflex.OpenLayers.Layer
+    , Reflex.OpenLayers.Event
+  ghc-prof-options: -fprof-auto
+  ghc-options: -threaded -Wall -fwarn-tabs -funbox-strict-fields
+  js-sources: static/ol.js
+  default-language: Haskell2010
+
+executable reflex-openlayers-demo
+  hs-source-dirs: exe
+  main-is: demo.hs
+  build-depends:
+    base,
+    reflex,
+    reflex-dom,
+    data-default,
+    reflex-openlayers
+  default-language: Haskell2010
