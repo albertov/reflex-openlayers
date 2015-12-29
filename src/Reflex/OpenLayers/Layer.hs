@@ -36,6 +36,7 @@ module Reflex.OpenLayers.Layer (
   , HasOpacity(..)
   , HasSource(..)
   , HasVisibility(..)
+  , HasLayers (..)
   , HasExtent(..)
   , HasResolutionRange(..)
 ) where
@@ -93,9 +94,6 @@ isVisible Hidden = False
 --
 -- Layer
 --
-class HasDynOpacity l where
-  dynOpacity :: Reflex t => l t -> Dynamic t Opacity
-
 class HasOpacity l o | l->o where
   opacity :: Lens' (l t) o
 
@@ -111,6 +109,9 @@ class HasExtent l e | l->e where
 class HasResolutionRange l r | l->r where
   minResolution :: Lens' (l t) r
   maxResolution :: Lens' (l t) r
+
+class HasLayers o a | o->a where
+  layers :: Lens' o a
 
 class ( HasVisibility l Visibility
       , HasOpacity l Opacity
@@ -157,7 +158,6 @@ instance HasResolutionRange LayerConfig (Maybe Double) where
          (\(LayerConfig l) o -> LayerConfig (l & maxResolution.~o))
 
 class ( Typeable l
-      , HasDynOpacity l
       ) => IsLayer l where
   layer_downcast :: Typeable t => Layer t -> Maybe (l t)
   layer_downcast (Layer l) = cast l
@@ -169,9 +169,6 @@ class ( Typeable l
   layer_maxResolution :: Reflex t => l t -> Dynamic t (Maybe Double)
 
 data Layer t =  forall l. (ToJSVal (l t), IsLayer l) => Layer (l t)
-
-instance HasDynOpacity Layer where
-  dynOpacity (Layer l) = dynOpacity l
 
 instance IsLayer Layer where
   layer_downcast = Just
@@ -204,9 +201,6 @@ instance IsLayer Image where
   layer_extent        = _image_extent
   layer_minResolution = _image_minResolution
   layer_maxResolution = _image_maxResolution
-
-instance HasDynOpacity Image where
-  dynOpacity = _image_opacity
 
 data ImageConfig t
   = ImageConfig {
@@ -304,9 +298,6 @@ instance IsLayer Tile where
   layer_minResolution = _tile_minResolution
   layer_maxResolution = _tile_maxResolution
 
-instance HasDynOpacity Tile where
-  dynOpacity = _tile_opacity
-
 data TileConfig t
   = TileConfig {
        _tileConfig_source           :: SourceConfig t
@@ -392,6 +383,7 @@ data Group t
     , _group_minResolution :: Dynamic t (Maybe Double)
     , _group_maxResolution :: Dynamic t (Maybe Double)
     } deriving (Typeable)
+makeLenses ''Group
 
 
 instance ToJSVal (Group t) where
@@ -403,8 +395,8 @@ instance IsLayer Group where
   layer_minResolution = _group_minResolution
   layer_maxResolution = _group_maxResolution
 
-instance HasDynOpacity Group where
-  dynOpacity = _group_opacity
+instance HasLayers (Group t) (Dynamic t [Layer t]) where
+  layers = group_layers
 
 data GroupConfig t
   = GroupConfig {
@@ -421,6 +413,7 @@ data GroupConfig t
      , _groupConfig_setMinResolution :: Event t (Maybe Double)
      , _groupConfig_setMaxResolution :: Event t (Maybe Double)
      }
+makeLenses ''GroupConfig
 
 instance Reflex t => Default (GroupConfig t) where
   def = GroupConfig {
@@ -437,8 +430,6 @@ instance Reflex t => Default (GroupConfig t) where
      , _groupConfig_setMinResolution = never
      , _groupConfig_setMaxResolution = never
      }
-makeLenses ''Group
-makeLenses ''GroupConfig
 
 instance IsLayerConfig GroupConfig where
   layer cfg@GroupConfig{..} = do
@@ -473,3 +464,6 @@ instance HasExtent GroupConfig (Maybe Extent) where
 instance HasResolutionRange GroupConfig (Maybe Double) where
   minResolution = groupConfig_minResolution
   maxResolution = groupConfig_maxResolution
+
+instance HasLayers (GroupConfig t) [LayerConfig t] where
+  layers = groupConfig_layers

@@ -24,6 +24,7 @@ library
     data-default,
     file-embed,
     lens,
+    dependent-sum,
     bytestring
   exposed-modules:
       Reflex.OpenLayers
@@ -40,8 +41,10 @@ executable reflex-openlayers-demo
   main-is: demo.hs
   build-depends:
     base,
+    lens,
     reflex,
     reflex-dom,
     data-default,
-    reflex-openlayers
+    reflex-openlayers,
+    safe
   default-language: Haskell2010
