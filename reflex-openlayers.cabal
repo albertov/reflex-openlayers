@@ -31,6 +31,7 @@ library
     , Reflex.OpenLayers.Source
     , Reflex.OpenLayers.Layer
     , Reflex.OpenLayers.Event
+    , Reflex.OpenLayers.Util
   ghc-prof-options: -fprof-auto
   ghc-options: -threaded -Wall -fwarn-tabs -funbox-strict-fields
   js-sources: static/ol.js

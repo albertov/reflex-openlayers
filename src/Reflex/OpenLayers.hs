@@ -106,6 +106,7 @@ instance Reflex t => Default (ViewConfig t) where
     , _viewConfig_zoom        = 0
     , _viewConfig_rotation    = 0
     , _viewConfig_setCenter   = never
+    , _viewConfig_setZoom     = never
     , _viewConfig_setRotation = never
     }
 

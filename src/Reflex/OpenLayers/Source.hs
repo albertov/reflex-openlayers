@@ -28,7 +28,7 @@ import qualified JavaScript.Object as O
 import Data.Typeable (Typeable, cast)
 import qualified Data.Map as M
 import Control.Monad (liftM, forM_)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHCJS.Marshal (ToJSVal(toJSVal))
 import GHCJS.Marshal.Pure (pToJSVal)
 import GHCJS.Types (JSVal, JSString, jsval)
@@ -36,7 +36,7 @@ import GHCJS.DOM.Types
 import Reflex.Dom (Reflex, MonadWidget)
 
 class IsSourceConfig l where
-  source :: MonadWidget t m => l t -> m (Source t)
+  source :: MonadIO m => l t -> m (Source t)
 
 data SourceConfig t =  forall l. IsSourceConfig l => SourceConfig (l t)
 
@@ -91,7 +91,7 @@ imageWMS url params = SourceConfig (ImageWMSConfig url params)
 -- MapQuest
 --
 
-data MapQuestLayer = OpenStreetMap | Satellite | Hybrid
+data MapQuestLayer = OpenStreetMap | Satellite | Hybrid deriving (Show, Read)
 
 instance ToJSVal MapQuestLayer where
   toJSVal OpenStreetMap = return (jsval ("osm" :: JSString))
