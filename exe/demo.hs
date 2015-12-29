@@ -21,14 +21,17 @@ main = mainWidgetWithCss OL.css $ mdo
     & OL.layerGroup .~ (def
       & OL.layers .~ [
           OL.tile dynSrc
+            & OL.opacity .~ dynOpacity
+            & OL.visible .~ value layerBox
         , (OL.image $ constDyn $
             OL.imageWMS "http://demo.boundlessgeo.com/geoserver/wms"
             ("LAYERS" =: "topp:states"))
-          & OL.opacity .~ 0.5
+          & OL.opacity .~ dynOpacity
+          & OL.visible .~ value layerBox
         ]
       )
-
   dynSrc <- holdDyn (OL.mapQuest Satellite) never
+  dynOpacity <- mapDyn (fromMaybe 0 . readMay) (value opacityInput)
   zoomInput <- dtdd "zoom" $ do
     let dynZoom = mapWidget ^. (OL.mapView . OL.zoom)
     curZoom <- sample (current dynZoom)
@@ -39,4 +42,10 @@ main = mainWidgetWithCss OL.css $ mdo
     display dynZoom
     return zoomInput
   dtdd "center" $ display (mapWidget ^. (OL.mapView . OL.center))
+  (layerBox, opacityInput) <- dtdd "layers" $ do
+    l <- checkbox False def
+    o <- textInput $ def
+      & textInputConfig_initialValue .~ "1"
+      & attributes .~ constDyn ("type" =: "number")
+    return (l, o)
   return ()
