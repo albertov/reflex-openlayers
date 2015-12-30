@@ -12,7 +12,14 @@ import Safe (readMay)
 
 main :: IO ()
 main = mainWidgetWithCss OL.css $ mdo
-  layers <- mapM layer [
+  mapWidget <- OL.map $ def
+    & OL.zoom    .~ 4
+    & OL.setZoom .~ fmapMaybe readMay (updated (value zoomInput))
+    & OL.center  .~ (-10997148, 4569099)
+    & OL.layers  .~ dynLayers
+  dynLayers <- holdDyn initialLayers $
+                 tag (fmap reverse (current dynLayers)) reverseButton
+  initialLayers <- mapM layer [
         OL.tile dynSrc
       , (OL.image $ constDyn $
           OL.imageWMS "http://demo.boundlessgeo.com/geoserver/wms"
@@ -20,22 +27,9 @@ main = mainWidgetWithCss OL.css $ mdo
         & OL.opacity .~ dynOpacity
         & OL.visible .~ value layerBox
       ]
-  mapWidget <- OL.map $ def
-    & OL.mapView .~ (def
-      & OL.zoom   .~ 4
-      & OL.setZoom .~ fmapMaybe readMay (updated (value zoomInput))
-      & OL.center .~ (-10997148, 4569099)
-      )
-    & OL.layers .~ layers
-    & OL.setLayers .~ tag (current reversedLayers) reverseButton
-  reversedLayers <- mapDyn reverse (mapWidget^.OL.layers)
-  {-
-  dynLayers <- holdDyn initialLayers $
-                 fmap reverse $
-                   tag (current dynLayers) reverseButton
-  -}
   dynSrc <- holdDyn (OL.mapQuest Satellite) never
   dynOpacity <- mapDyn (fromMaybe 0 . readMay) (value opacityInput)
+
   zoomInput <- dtdd "zoom" $ do
     let dynZoom = mapWidget ^. (OL.mapView . OL.zoom)
     curZoom <- sample (current dynZoom)

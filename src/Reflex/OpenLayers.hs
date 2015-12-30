@@ -15,10 +15,8 @@ module Reflex.OpenLayers (
   , View
   , HasAttributes(..)
   , HasMapView (..)
-  , HasLayerGroup (..)
   , HasZoom (..)
   , HasSetZoom (..)
-  , HasSetLayers (..)
   , HasCenter (..)
   , HasRotation (..)
   , map
@@ -27,7 +25,7 @@ module Reflex.OpenLayers (
 
 import Reflex.OpenLayers.Event (on_)
 import Reflex.OpenLayers.Layer
-import Reflex.OpenLayers.Util (olSetter)
+import Reflex.OpenLayers.Util (initProp)
 
 import Control.Lens (Lens', makeLenses, (^.))
 import Control.Monad (liftM, (>=>))
@@ -59,9 +57,6 @@ import Prelude hiding (map)
 class HasMapView l v | l->v where
   mapView :: Lens' l v
 
-class HasLayerGroup l v | l->v where
-  layerGroup :: Lens' l v
-
 class HasZoom l v | l->v where
   zoom :: Lens' l v
 
@@ -74,8 +69,6 @@ class HasCenter l v | l->v where
 class HasRotation l v | l->v where
   rotation :: Lens' l v
 
-class HasSetLayers l v | l->v where
-  setLayers :: Lens' l v
 
 --
 -- View
@@ -194,8 +187,7 @@ data MapConfig t
   = MapConfig {
       _mapConfig_attributes :: Dynamic t (M.Map String String)
     , _mapConfig_view       :: ViewConfig t
-    , _mapConfig_layers     :: [Layer t]
-    , _mapConfig_setLayers  :: Event t [Layer t]
+    , _mapConfig_layers     :: Dynamic t [Layer t]
     }
 makeLenses ''MapConfig
 
@@ -206,18 +198,23 @@ instance HasAttributes (MapConfig t) where
 instance HasMapView (MapConfig t) (ViewConfig t) where
   mapView = mapConfig_view
 
-instance HasLayers (MapConfig t) [Layer t] where
+instance HasLayers (MapConfig t) (Dynamic t [Layer t]) where
   layers = mapConfig_layers
 
-instance HasSetLayers (MapConfig t) (Event t [Layer t]) where
-  setLayers = mapConfig_setLayers
+instance HasCenter (MapConfig t) (Coordinates) where
+  center = mapView . center
+instance HasZoom (MapConfig t) Zoom where
+  zoom = mapView . zoom
+instance HasSetZoom (MapConfig t) (Event t Zoom) where
+  setZoom = mapView . setZoom
+instance HasRotation (MapConfig t) (Rotation) where
+  rotation = mapView . rotation
 
 instance Reflex t => Default (MapConfig t) where
   def = MapConfig {
         _mapConfig_attributes  = constDyn mempty
       , _mapConfig_view        = def
-      , _mapConfig_layers      = []
-      , _mapConfig_setLayers   = never
+      , _mapConfig_layers      = constDyn []
     }
 
 data Map t
@@ -243,19 +240,15 @@ map cfg@MapConfig{..} = do
   jsMap <- liftIO $ do
     opts <- O.create
     O.setProp "view" (_view_jsval v) opts
-    jsLayers <- toJSVal (cfg^.layers)
-    O.setProp "layers" jsLayers opts
     olMap opts
-  dynLayers <- holdDyn (cfg^.layers) (cfg^.setLayers)
-  performEvent_ $ fmap (liftIO . (toJSVal >=> olMap_setLayers jsMap))
-                       (cfg^.setLayers)
+  initProp (const (liftIO . (toJSVal >=> olMap_setLayers jsMap)))
+           layers jsMap cfg
   postBuild <- getPostBuild
-  performEvent_ $ flip fmap postBuild $ \_ -> do
-    liftIO $ olMap_setTarget jsMap jsTarget
+  performEvent_ $ fmap (const (liftIO $ olMap_setTarget jsMap jsTarget)) postBuild
   return Map {
         _map_view   = v
       , _map_jsval  = jsMap
-      , _map_layers = dynLayers
+      , _map_layers = undefined
     }
 
 
