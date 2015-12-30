@@ -40,7 +40,8 @@ module Reflex.OpenLayers.Layer (
   , HasVisibility(..)
   , HasLayers (..)
   , HasExtent(..)
-  , HasResolutionRange(..)
+  , HasMinResolution(..)
+  , HasMaxResolution(..)
 ) where
 
 import Reflex.OpenLayers.Source (
@@ -89,14 +90,14 @@ class HasSource o a | o->a where source :: Lens' o a
 class HasVisibility o a | o->a where visible :: Lens' o a
 class HasExtent o a | o->a where extent :: Lens' o a
 class HasLayers o a | o->a where layers :: Lens' o a
-class HasResolutionRange o a | o->a where
-  minResolution :: Lens' o a
-  maxResolution :: Lens' o a
+class HasMinResolution o a | o->a where minResolution :: Lens' o a
+class HasMaxResolution o a | o->a where maxResolution :: Lens' o a
 
 class ( HasVisibility (l t) (Dynamic t Bool)
       , HasOpacity (l t) (Dynamic t Opacity)
       , HasExtent (l t) (Maybe Extent)
-      , HasResolutionRange (l t) (Maybe Double)
+      , HasMinResolution (l t) (Maybe Double)
+      , HasMaxResolution (l t) (Maybe Double)
       ) => IsLayerConfig l t where
   layer :: MonadWidget t m => l t -> m (Layer t)
 
@@ -129,10 +130,11 @@ instance HasExtent (LayerConfig t) (Maybe Extent) where
   extent =
     lens (\(LayerConfig l) -> l^.extent)
          (\(LayerConfig l) o -> LayerConfig (l & extent.~o))
-instance HasResolutionRange (LayerConfig t) (Maybe Double) where
+instance HasMinResolution (LayerConfig t) (Maybe Double) where
   minResolution =
     lens (\(LayerConfig l) -> l^.minResolution)
          (\(LayerConfig l) o -> LayerConfig (l & minResolution.~o))
+instance HasMaxResolution (LayerConfig t) (Maybe Double) where
   maxResolution =
     lens (\(LayerConfig l) -> l^.maxResolution)
          (\(LayerConfig l) o -> LayerConfig (l & maxResolution.~o))
@@ -221,8 +223,9 @@ instance HasVisibility (ImageConfig t) (Dynamic t Bool) where
   visible = imageConfig_visible
 instance HasExtent (ImageConfig t) (Maybe Extent) where
   extent = imageConfig_extent
-instance HasResolutionRange (ImageConfig t) (Maybe Double) where
+instance HasMinResolution (ImageConfig t) (Maybe Double) where
   minResolution = imageConfig_minResolution
+instance HasMaxResolution (ImageConfig t) (Maybe Double) where
   maxResolution = imageConfig_maxResolution
 
 
@@ -274,8 +277,9 @@ instance HasVisibility (TileConfig t) (Dynamic t Bool) where
   visible = tileConfig_visible
 instance HasExtent (TileConfig t) (Maybe Extent) where
   extent = tileConfig_extent
-instance HasResolutionRange (TileConfig t) (Maybe Double) where
+instance HasMinResolution (TileConfig t) (Maybe Double) where
   minResolution = tileConfig_minResolution
+instance HasMaxResolution (TileConfig t) (Maybe Double) where
   maxResolution = tileConfig_maxResolution
 
 --
@@ -323,8 +327,9 @@ instance HasVisibility (GroupConfig t) (Dynamic t Bool) where
   visible = groupConfig_visible
 instance HasExtent (GroupConfig t) (Maybe Extent) where
   extent = groupConfig_extent
-instance HasResolutionRange (GroupConfig t) (Maybe Double) where
+instance HasMinResolution (GroupConfig t) (Maybe Double) where
   minResolution = groupConfig_minResolution
+instance HasMaxResolution (GroupConfig t) (Maybe Double) where
   maxResolution = groupConfig_maxResolution
 
 instance HasLayers (GroupConfig t) [LayerConfig t] where

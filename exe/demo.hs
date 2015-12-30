@@ -17,6 +17,7 @@ main = mainWidgetWithCss OL.css $ mdo
   mapWidget <- OL.map $ def
     & OL.resolution    .~ 100000
     & OL.setResolution .~ fmapMaybe readMay (updated (value resolutionInput))
+    & OL.setRotation .~ fmapMaybe readMay (updated (value rotationInput))
     & OL.center  .~ (-10997148, 4569099)
     & OL.setCenter  .~ eCenter
     & OL.layers  .~ dynLayers
@@ -32,26 +33,47 @@ main = mainWidgetWithCss OL.css $ mdo
       ]
   dynSrc <- holdDyn (OL.mapQuest Satellite) never
   dynOpacity <- mapDyn (fromMaybe 0 . readMay) (value opacityInput)
-  let eCenter  = push performMove eMove
-      delta = 1000
-      curCenter = sample (current (mapWidget^.OL.center))
-      performMove North = liftM (fmap (second (+delta))) curCenter
-      performMove South = liftM (fmap (second (subtract delta))) curCenter
-      performMove East = liftM (fmap (first (+delta))) curCenter
-      performMove West = liftM (fmap (first (subtract delta))) curCenter
+
+  rotationInput <- dtdd "rotation" $ do
+    let d = mapWidget^.OL.rotation
+    cur <- sample (current d)
+    input <- textInput $ def
+      & textInputConfig_initialValue .~ show cur
+      & setValue   .~ fmap show  (updated d)
+      & attributes .~ constDyn ("type" =: "number")
+    display d
+    return input
+
   resolutionInput <- dtdd "resolution" $ do
     let dynResolution = mapWidget^.OL.resolution
     curResolution <- sample (current dynResolution)
     resolutionInput <- textInput $ def
       & textInputConfig_initialValue .~ show (fromMaybe 0 curResolution)
-      & setValue   .~ fmap (show . fromMaybe (-1))  (updated dynResolution)
+      & setValue .~ fmap (show . fromMaybe (-1))  (updated dynResolution)
       & attributes .~ constDyn ("type" =: "number")
     display dynResolution
     return resolutionInput
-  eMove <- dtdd "center" $ do
+
+  eCenter <- dtdd "center" $ do
+    let mover = do
+          mResolution <- current (mapWidget^.OL.resolution)
+          mCenter <- current (mapWidget^.OL.center)
+          return $ do
+            delta <- liftM (*10) mResolution
+            (x,y) <- mCenter
+            return $ \dir -> case dir of
+                               North -> (x        , y + delta)
+                               South -> (x        , y - delta)
+                               East  -> (x + delta, y        )
+                               West  -> (x - delta, y        )
+    north <- liftM (fmap (const North)) (button "north")
+    south <- liftM (fmap (const South)) (button "south")
+    east <- liftM (fmap (const East)) (button "east")
+    west <- liftM (fmap (const West)) (button "west")
     display (mapWidget^.OL.center)
-    goNorth <- liftM (fmap (const North)) (button "north")
-    return goNorth
+    return $ attachWithMaybe (\mFun dir -> fmap ($dir) mFun) mover
+              $ leftmost [north, south, east, west]
+
   (reverseButton,layerBox, opacityInput) <- dtdd "layers" $ do
     l <- checkbox True def
     o <- textInput $ def

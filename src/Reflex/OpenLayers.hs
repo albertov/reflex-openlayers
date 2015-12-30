@@ -20,13 +20,14 @@ module Reflex.OpenLayers (
   , HasCenter (..)
   , HasSetCenter (..)
   , HasRotation (..)
+  , HasSetRotation (..)
   , map
   , css
 ) where
 
 import Reflex.OpenLayers.Event (on_)
 import Reflex.OpenLayers.Layer
-import Reflex.OpenLayers.Util (initProp, initGoogProp)
+import Reflex.OpenLayers.Util (initProp, wrapObservableProp)
 
 import Control.Lens (Lens', makeLenses, (^.))
 import Control.Monad (liftM, (>=>))
@@ -110,20 +111,20 @@ instance HasSetRotation (ViewConfig t) (Event t Rotation) where
 
 instance Reflex t => Default (ViewConfig t) where
   def = ViewConfig {
-      _viewConfig_center      = (0,0)
-    , _viewConfig_resolution  = 1
-    , _viewConfig_rotation    = 0
-    , _viewConfig_setCenter   = never
-    , _viewConfig_setResolution     = never
-    , _viewConfig_setRotation = never
+      _viewConfig_center        = (0,0)
+    , _viewConfig_resolution    = 1
+    , _viewConfig_rotation      = 0
+    , _viewConfig_setCenter     = never
+    , _viewConfig_setResolution = never
+    , _viewConfig_setRotation   = never
     }
 
 data View t
   = View {
-      _view_center   :: Dynamic t (Maybe Coordinates)
-    , _view_resolution     :: Dynamic t (Maybe Resolution)
-    , _view_rotation :: Dynamic t Rotation
-    , _view_jsval    :: JSVal
+      _view_center     :: Dynamic t (Maybe Coordinates)
+    , _view_resolution :: Dynamic t (Maybe Resolution)
+    , _view_rotation   :: Dynamic t Rotation
+    , _view_jsval      :: JSVal
     }
 makeLenses ''View
 
@@ -137,11 +138,11 @@ instance HasRotation (View t) (Dynamic t Rotation) where
 view :: MonadWidget t m => ViewConfig t -> m (View t)
 view cfg = do
   jsView <- liftIO newView
-  dynResolution <- initGoogProp "resolution"
+  dynResolution <- wrapObservableProp "resolution"
                Just jsView (cfg^.resolution) (cfg^.setResolution)
-  dynCenter <- initGoogProp "center"
+  dynCenter <- wrapObservableProp "center"
                 Just jsView (cfg^.center) (cfg^.setCenter)
-  dynRotation <- initGoogProp "rotation"
+  dynRotation <- wrapObservableProp "rotation"
                id jsView (cfg^.rotation) (cfg^.setRotation)
 
   return View {
@@ -203,15 +204,11 @@ data Map t
   = Map {
       _map_jsval  :: JSVal
     , _map_view   :: View t
-    , _map_layers :: Dynamic t [Layer t]
     }
 makeLenses ''Map
 
 instance HasMapView (Map t) (View t) where
   mapView = map_view
-
-instance HasLayers (Map t) (Dynamic t [Layer t]) where
-  layers = map_layers
 
 instance HasCenter (Map t) (Dynamic t (Maybe Coordinates)) where
   center = mapView . center
@@ -237,7 +234,6 @@ map cfg@MapConfig{..} = do
   return Map {
         _map_view   = v
       , _map_jsval  = jsMap
-      , _map_layers = undefined
     }
 
 

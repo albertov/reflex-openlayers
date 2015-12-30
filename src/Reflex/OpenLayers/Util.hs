@@ -8,7 +8,7 @@ module Reflex.OpenLayers.Util (
   , initPropWith
   , initOLProp
   , initOLPropWith
-  , initGoogProp
+  , wrapObservableProp
   ) where
 
 import Reflex.OpenLayers.Event
@@ -47,7 +47,7 @@ initPropWith setter lens_ build jsVal cfg = do
     fmap (build >=> setter jsVal)
     (updated (cfg^.lens_))
 
-initGoogProp
+wrapObservableProp
   :: (ToJSVal a, FromJSVal b, MonadWidget t m)
   => String
   -> (a -> b)
@@ -55,9 +55,9 @@ initGoogProp
   -> a
   -> Event t a
   -> m (Dynamic t b)
-initGoogProp name wrap obj initialValue eSet = do
+wrapObservableProp name wrap obj initialValue eSet = do
   let jName  = toJSString name
-      err = fail "initGoogProp.set (fromJSVal)"
+      err = fail "wrapObservableProp.set (fromJSVal)"
       set = liftIO . (toJSVal >=> googSet jName (pToJSVal False) obj)
       get = liftIO (googGet jName obj >>= fromJSVal >>= maybe err return)
   performEvent_ $ fmap set eSet
