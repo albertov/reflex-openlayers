@@ -29,6 +29,11 @@ main = mainWidgetWithCss OL.css $ mdo
     & OL.layers .~ layers
     & OL.setLayers .~ tag (current reversedLayers) reverseButton
   reversedLayers <- mapDyn reverse (mapWidget^.OL.layers)
+  {-
+  dynLayers <- holdDyn initialLayers $
+                 fmap reverse $
+                   tag (current dynLayers) reverseButton
+  -}
   dynSrc <- holdDyn (OL.mapQuest Satellite) never
   dynOpacity <- mapDyn (fromMaybe 0 . readMay) (value opacityInput)
   zoomInput <- dtdd "zoom" $ do

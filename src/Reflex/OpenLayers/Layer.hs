@@ -48,7 +48,7 @@ import Reflex.OpenLayers.Source (
   , Source
   )
 import qualified Reflex.OpenLayers.Source as S
-import Reflex.OpenLayers.Util (olSetter)
+import Reflex.OpenLayers.Util (initOLProp, initOLPropWith)
 
 import Reflex
 import Reflex.Dom
@@ -57,7 +57,7 @@ import qualified JavaScript.Object as O
 import Data.Default (Default(def))
 import Data.Typeable (Typeable, cast)
 import Control.Lens
-import Control.Monad (liftM, when, (>=>))
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import GHCJS.Marshal (ToJSVal(toJSVal))
 import GHCJS.Types
@@ -100,6 +100,7 @@ class ( HasVisibility (l t) (Dynamic t Bool)
       ) => IsLayerConfig l t where
   layer :: MonadWidget t m => l t -> m (Layer t)
 
+-- TODO: Remove once extent and minmax resolutions are dynamic
 layerOptions :: IsLayerConfig l t => l t -> IO O.Object
 layerOptions cfg = do
   opts <- O.create
@@ -180,36 +181,24 @@ image src = LayerConfig $ ImageConfig {
      , _imageConfig_maxResolution    = Nothing
      }
 
-initProp
-  :: (ToJSVal a, ToJSVal c, MonadWidget t m)
-  => String
-  -> Lens' s (Dynamic t b)
-  -> (b -> WidgetHost m c) -> a -> s -> m ()
-initProp setterName lens_ build jsVal cfg = do
-  schedulePostBuild $ do
-    src <- build =<< sample (current (cfg^.lens_))
-    olSetter setterName jsVal src
-  performEvent_ $
-    fmap (build >=> olSetter setterName jsVal)
-    (updated (cfg^.lens_))
 
 initSource
   :: ( ToJSVal a, S.IsSourceConfig l, MonadWidget t m
      , HasSource s (Dynamic t (l t1))
      ) => a -> s -> m ()
-initSource = initProp "setSource" source (S.source)
+initSource = initOLPropWith "setSource" source (S.source)
 
 initVisible
   :: ( ToJSVal a, MonadWidget t m
      , HasVisibility s (Dynamic t Bool)
      ) => a -> s -> m ()
-initVisible = initProp "setVisible" visible return
+initVisible = initOLProp "setVisible" visible
 
 initOpacity
   :: ( ToJSVal a, MonadWidget t m
      , HasOpacity s (Dynamic t Opacity)
      ) => a -> s -> m ()
-initOpacity = initProp "setOpacity" opacity return
+initOpacity = initOLProp "setOpacity" opacity
 
 initLayerCommon jsVal cfg = do
   initVisible jsVal cfg
