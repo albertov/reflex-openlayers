@@ -15,9 +15,10 @@ module Reflex.OpenLayers (
   , View
   , HasAttributes(..)
   , HasMapView (..)
-  , HasZoom (..)
-  , HasSetZoom (..)
+  , HasResolution (..)
+  , HasSetResolution (..)
   , HasCenter (..)
+  , HasSetCenter (..)
   , HasRotation (..)
   , map
   , css
@@ -25,7 +26,7 @@ module Reflex.OpenLayers (
 
 import Reflex.OpenLayers.Event (on_)
 import Reflex.OpenLayers.Layer
-import Reflex.OpenLayers.Util (initProp)
+import Reflex.OpenLayers.Util (initProp, initGoogProp)
 
 import Control.Lens (Lens', makeLenses, (^.))
 import Control.Monad (liftM, (>=>))
@@ -57,17 +58,22 @@ import Prelude hiding (map)
 class HasMapView l v | l->v where
   mapView :: Lens' l v
 
-class HasZoom l v | l->v where
-  zoom :: Lens' l v
+class HasResolution l v | l->v where
+  resolution :: Lens' l v
 
-class HasSetZoom l v | l->v where
-  setZoom :: Lens' l v
+class HasSetResolution l v | l->v where
+  setResolution :: Lens' l v
 
 class HasCenter l v | l->v where
   center :: Lens' l v
 
+class HasSetCenter l v | l->v where
+  setCenter :: Lens' l v
+
 class HasRotation l v | l->v where
   rotation :: Lens' l v
+class HasSetRotation l v | l->v where
+  setRotation :: Lens' l v
 
 
 --
@@ -75,43 +81,47 @@ class HasRotation l v | l->v where
 --
 
 type Coordinates = (Double, Double)
-type Zoom        = Int
+type Resolution  = Double
 type Rotation    = Double
 
 data ViewConfig t
   = ViewConfig {
-      _viewConfig_center      :: Coordinates
-    , _viewConfig_zoom        :: Zoom
-    , _viewConfig_rotation    :: Rotation
-    , _viewConfig_setZoom     :: Event t Zoom
-    , _viewConfig_setCenter   :: Event t Coordinates
-    , _viewConfig_setRotation :: Event t Rotation
+      _viewConfig_center        :: Coordinates
+    , _viewConfig_resolution    :: Resolution
+    , _viewConfig_rotation      :: Rotation
+    , _viewConfig_setResolution :: Event t Resolution
+    , _viewConfig_setCenter     :: Event t Coordinates
+    , _viewConfig_setRotation   :: Event t Rotation
     }
 makeLenses ''ViewConfig
 
 instance HasCenter (ViewConfig t) (Coordinates) where
   center = viewConfig_center
-instance HasZoom (ViewConfig t) Zoom where
-  zoom = viewConfig_zoom
-instance HasSetZoom (ViewConfig t) (Event t Zoom) where
-  setZoom = viewConfig_setZoom
+instance HasResolution (ViewConfig t) Resolution where
+  resolution = viewConfig_resolution
+instance HasSetResolution (ViewConfig t) (Event t Resolution) where
+  setResolution = viewConfig_setResolution
+instance HasSetCenter (ViewConfig t) (Event t Coordinates) where
+  setCenter = viewConfig_setCenter
 instance HasRotation (ViewConfig t) (Rotation) where
   rotation = viewConfig_rotation
+instance HasSetRotation (ViewConfig t) (Event t Rotation) where
+  setRotation = viewConfig_setRotation
 
 instance Reflex t => Default (ViewConfig t) where
   def = ViewConfig {
       _viewConfig_center      = (0,0)
-    , _viewConfig_zoom        = 0
+    , _viewConfig_resolution  = 1
     , _viewConfig_rotation    = 0
     , _viewConfig_setCenter   = never
-    , _viewConfig_setZoom     = never
+    , _viewConfig_setResolution     = never
     , _viewConfig_setRotation = never
     }
 
 data View t
   = View {
       _view_center   :: Dynamic t (Maybe Coordinates)
-    , _view_zoom     :: Dynamic t (Maybe Zoom)
+    , _view_resolution     :: Dynamic t (Maybe Resolution)
     , _view_rotation :: Dynamic t Rotation
     , _view_jsval    :: JSVal
     }
@@ -119,65 +129,33 @@ makeLenses ''View
 
 instance HasCenter (View t) (Dynamic t (Maybe Coordinates)) where
   center = view_center
-instance HasZoom (View t) (Dynamic t (Maybe Zoom)) where
-  zoom = view_zoom
+instance HasResolution (View t) (Dynamic t (Maybe Resolution)) where
+  resolution = view_resolution
 instance HasRotation (View t) (Dynamic t Rotation) where
   rotation = view_rotation
 
 view :: MonadWidget t m => ViewConfig t -> m (View t)
 view cfg = do
-  jsView <- liftIO $ do
-    opts <- O.create
-    let set k v = do {v' <- toJSVal v; O.setProp k v' opts}
-        set :: ToJSVal a => JSString -> a -> IO ()
-    set "center" (cfg^.center)
-    set "zoom" (cfg^.zoom)
-    set "rotation" (cfg^.rotation)
-    olView opts
-
-  postGui <- askPostGui
-  runWithActions <- askRunWithActions
-
-  performEvent_ $ fmap (liftIO . (toJSVal >=> olView_setZoom jsView)) (cfg^.setZoom)
-  dynZoom <- holdDyn (Just (cfg^.zoom)) =<< (newEventWithTrigger $ \trig -> do
-    unsubscribe <- liftIO $ on_ "change:resolution" jsView $ \_ -> do
-      zoom <- olView_getZoom jsView
-      postGui $ runWithActions [trig :=> pFromJSVal zoom]
-    return (liftIO unsubscribe))
-
-  dynCenter <- holdDyn (Just (cfg^.center)) =<< (newEventWithTrigger $ \trig -> do
-    unsubscribe <- liftIO $ on_ "change:center" jsView $ \_ -> do
-      v <- fromJSVal =<< olView_getCenter jsView
-      postGui $ runWithActions [trig :=> v]
-    return (liftIO unsubscribe))
+  jsView <- liftIO newView
+  dynResolution <- initGoogProp "resolution"
+               Just jsView (cfg^.resolution) (cfg^.setResolution)
+  dynCenter <- initGoogProp "center"
+                Just jsView (cfg^.center) (cfg^.setCenter)
+  dynRotation <- initGoogProp "rotation"
+               id jsView (cfg^.rotation) (cfg^.setRotation)
 
   return View {
-      _view_center   = dynCenter
-    , _view_zoom     = dynZoom
-    , _view_rotation = constDyn 0
-    , _view_jsval    = jsView
+      _view_center      = dynCenter
+    , _view_resolution  = dynResolution
+    , _view_rotation    = dynRotation
+    , _view_jsval       = jsView
     }
 
 --
 -- ol.View
 --
-foreign import javascript unsafe "new ol['View']($1)"
-  olView :: O.Object -> IO JSVal
+foreign import javascript unsafe "new ol['View']({})" newView :: IO JSVal
 
-foreign import javascript unsafe "$1['setCenter']($2)"
-  olView_setCenter :: JSVal -> JSVal -> IO ()
-
-foreign import javascript unsafe "$1['getCenter']()"
-  olView_getCenter :: JSVal -> IO JSVal
-
-foreign import javascript unsafe "$1['setRotation']($2)"
-  olView_setRotation :: JSVal -> JSVal -> IO ()
-
-foreign import javascript unsafe "$1['setZoom']($2)"
-  olView_setZoom :: JSVal -> JSVal -> IO ()
-
-foreign import javascript unsafe "$1['getZoom']()"
-  olView_getZoom :: JSVal -> IO JSVal
 
 --
 -- Map
@@ -203,12 +181,16 @@ instance HasLayers (MapConfig t) (Dynamic t [Layer t]) where
 
 instance HasCenter (MapConfig t) (Coordinates) where
   center = mapView . center
-instance HasZoom (MapConfig t) Zoom where
-  zoom = mapView . zoom
-instance HasSetZoom (MapConfig t) (Event t Zoom) where
-  setZoom = mapView . setZoom
+instance HasSetCenter (MapConfig t) (Event t Coordinates) where
+  setCenter = mapView . setCenter
+instance HasResolution (MapConfig t) Resolution where
+  resolution = mapView . resolution
+instance HasSetResolution (MapConfig t) (Event t Resolution) where
+  setResolution = mapView . setResolution
 instance HasRotation (MapConfig t) (Rotation) where
   rotation = mapView . rotation
+instance HasSetRotation (MapConfig t) (Event t Rotation) where
+  setRotation = mapView . setRotation
 
 instance Reflex t => Default (MapConfig t) where
   def = MapConfig {
@@ -230,6 +212,13 @@ instance HasMapView (Map t) (View t) where
 
 instance HasLayers (Map t) (Dynamic t [Layer t]) where
   layers = map_layers
+
+instance HasCenter (Map t) (Dynamic t (Maybe Coordinates)) where
+  center = mapView . center
+instance HasResolution (Map t) (Dynamic t (Maybe Resolution)) where
+  resolution = mapView . resolution
+instance HasRotation (Map t) (Dynamic t Rotation) where
+  rotation = mapView . rotation
 
 
 map :: (Typeable t, MonadWidget t m) => MapConfig t -> m (Map t)
@@ -266,14 +255,6 @@ foreign import javascript unsafe "$1['setView']($2)"
 
 foreign import javascript unsafe "$1['getLayerGroup']()['setLayers'](new ol.Collection($2))"
   olMap_setLayers :: JSVal -> JSVal -> IO ()
-
-
---
--- Util
---
-
-foreign import javascript unsafe "window['_map']=$1"
-  debugMap :: JSVal -> IO ()
 
 --
 -- CSS

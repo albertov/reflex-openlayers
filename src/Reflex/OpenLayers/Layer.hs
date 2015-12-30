@@ -183,21 +183,21 @@ image src = LayerConfig $ ImageConfig {
 
 
 initSource
-  :: ( ToJSVal a, S.IsSourceConfig l, MonadWidget t m
+  :: ( S.IsSourceConfig l, MonadWidget t m
      , HasSource s (Dynamic t (l t1))
-     ) => a -> s -> m ()
+     ) => JSVal -> s -> m ()
 initSource = initOLPropWith "setSource" source (S.source)
 
 initVisible
-  :: ( ToJSVal a, MonadWidget t m
+  :: ( MonadWidget t m
      , HasVisibility s (Dynamic t Bool)
-     ) => a -> s -> m ()
+     ) => JSVal -> s -> m ()
 initVisible = initOLProp "setVisible" visible
 
 initOpacity
-  :: ( ToJSVal a, MonadWidget t m
+  :: ( MonadWidget t m
      , HasOpacity s (Dynamic t Opacity)
-     ) => a -> s -> m ()
+     ) => JSVal -> s -> m ()
 initOpacity = initOLProp "setOpacity" opacity
 
 initLayerCommon jsVal cfg = do
