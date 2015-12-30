@@ -18,6 +18,7 @@ module Reflex.OpenLayers (
   , HasLayerGroup (..)
   , HasZoom (..)
   , HasSetZoom (..)
+  , HasSetLayers (..)
   , HasCenter (..)
   , HasRotation (..)
   , map
@@ -26,6 +27,7 @@ module Reflex.OpenLayers (
 
 import Reflex.OpenLayers.Event (on_)
 import Reflex.OpenLayers.Layer
+import Reflex.OpenLayers.Util (olSetter)
 
 import Control.Lens (Lens', makeLenses, (^.))
 import Control.Monad (liftM, (>=>))
@@ -71,6 +73,9 @@ class HasCenter l v | l->v where
 
 class HasRotation l v | l->v where
   rotation :: Lens' l v
+
+class HasSetLayers l v | l->v where
+  setLayers :: Lens' l v
 
 --
 -- View
@@ -187,9 +192,10 @@ foreign import javascript unsafe "$1['getZoom']()"
 
 data MapConfig t
   = MapConfig {
-      _mapConfig_attributes    :: Dynamic t (M.Map String String)
-    , _mapConfig_view          :: ViewConfig t
-    , _mapConfig_layerGroup    :: GroupConfig t
+      _mapConfig_attributes :: Dynamic t (M.Map String String)
+    , _mapConfig_view       :: ViewConfig t
+    , _mapConfig_layers     :: [Layer t]
+    , _mapConfig_setLayers  :: Event t [Layer t]
     }
 makeLenses ''MapConfig
 
@@ -200,47 +206,56 @@ instance HasAttributes (MapConfig t) where
 instance HasMapView (MapConfig t) (ViewConfig t) where
   mapView = mapConfig_view
 
-instance HasLayerGroup (MapConfig t) (GroupConfig t) where
-  layerGroup = mapConfig_layerGroup
+instance HasLayers (MapConfig t) [Layer t] where
+  layers = mapConfig_layers
+
+instance HasSetLayers (MapConfig t) (Event t [Layer t]) where
+  setLayers = mapConfig_setLayers
 
 instance Reflex t => Default (MapConfig t) where
   def = MapConfig {
-        _mapConfig_attributes    = constDyn mempty
-      , _mapConfig_view          = def
-      , _mapConfig_layerGroup    = def
+        _mapConfig_attributes  = constDyn mempty
+      , _mapConfig_view        = def
+      , _mapConfig_layers      = []
+      , _mapConfig_setLayers   = never
     }
 
 data Map t
   = Map {
-      _map_jsval      :: JSVal
-    , _map_view       :: View t
-    , _map_layerGroup :: Group t
+      _map_jsval  :: JSVal
+    , _map_view   :: View t
+    , _map_layers :: Dynamic t [Layer t]
     }
 makeLenses ''Map
 
 instance HasMapView (Map t) (View t) where
   mapView = map_view
 
+instance HasLayers (Map t) (Dynamic t [Layer t]) where
+  layers = map_layers
+
 
 map :: (Typeable t, MonadWidget t m) => MapConfig t -> m (Map t)
 map cfg@MapConfig{..} = do
   element <- liftM castToHTMLDivElement $ buildEmptyElement "div" (cfg^.attributes)
-  v <- view (cfg^.mapView)
-  layers <- layer (cfg^.layerGroup)
   let jsTarget = unElement (toElement element)
+  v <- view (cfg^.mapView)
   jsMap <- liftIO $ do
     opts <- O.create
     O.setProp "view" (_view_jsval v) opts
-    jsLayers <- toJSVal layers
+    jsLayers <- toJSVal (cfg^.layers)
     O.setProp "layers" jsLayers opts
     olMap opts
-  liftIO $ debugMap jsMap
+  dynLayers <- holdDyn (cfg^.layers) (cfg^.setLayers)
+  performEvent_ $ fmap (liftIO . (toJSVal >=> olMap_setLayers jsMap))
+                       (cfg^.setLayers)
   postBuild <- getPostBuild
-  performEvent_ $ fmap (\_ -> liftIO $ olMap_setTarget jsMap jsTarget) postBuild
+  performEvent_ $ flip fmap postBuild $ \_ -> do
+    liftIO $ olMap_setTarget jsMap jsTarget
   return Map {
-        _map_view       = v
-      , _map_jsval      = jsMap
-      , _map_layerGroup = fromJust (layer_downcast layers)
+        _map_view   = v
+      , _map_jsval  = jsMap
+      , _map_layers = dynLayers
     }
 
 
@@ -255,6 +270,9 @@ foreign import javascript unsafe "$1['setTarget']($2)"
 
 foreign import javascript unsafe "$1['setView']($2)"
   olMap_setView :: JSVal -> JSVal -> IO ()
+
+foreign import javascript unsafe "$1['getLayerGroup']()['setLayers'](new ol.Collection($2))"
+  olMap_setLayers :: JSVal -> JSVal -> IO ()
 
 
 --
