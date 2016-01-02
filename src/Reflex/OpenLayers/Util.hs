@@ -1,6 +1,7 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE JavaScriptFFI #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Reflex.OpenLayers.Util (
     olSetter
@@ -9,6 +10,8 @@ module Reflex.OpenLayers.Util (
   , initOLProp
   , initOLPropWith
   , wrapObservableProp
+  , declareProperties
+  , hasProperties
   ) where
 
 import Reflex.OpenLayers.Event
@@ -17,14 +20,16 @@ import Reflex
 import Reflex.Dom
 import Reflex.Host.Class (newEventWithTrigger)
 
-import Control.Lens (Lens', (^.))
-import Control.Monad (liftM, (>=>))
+import Control.Lens (Lens', (^.), lens)
+import Control.Monad ((>=>))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Dependent.Sum (DSum (..))
 import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
 import GHCJS.Marshal.Pure (pToJSVal)
 import GHCJS.Types
 import GHCJS.DOM.Types (toJSString)
+import Language.Haskell.TH
+import Data.Char
 
 initProp
   :: (ToJSVal a, MonadWidget t m)
@@ -104,3 +109,50 @@ foreign import javascript unsafe "$3['set']($1,$4,$2)"
 
 foreign import javascript unsafe "$2['get']($1)"
   googGet :: JSString -> JSVal -> IO JSVal
+
+declareProperty :: String -> Q Dec
+declareProperty name = do
+  o <- newName "o"
+  a <- newName "a"
+  return $
+    ClassD [] clsName [PlainTV o,PlainTV a] [FunDep [o] [a]]
+      [SigD (mkName name) (AppT (AppT (ConT ''Lens') (VarT o)) (VarT a))]
+  where
+    clsName = mkName ("Has" ++ capitalize name)
+
+declareProperties :: [String] -> Q [Dec]
+declareProperties = mapM declareProperty
+
+hasProperty :: Name -> String -> Q Dec
+hasProperty name propName = do
+  TyConI (DataD _ _ tyVars [RecC _ fields] []) <- reify name
+  o <- newName "o"
+  v <- newName "v"
+  let (fName,_,fType) = findField fields
+      setter = LamE [VarP o,VarP v] (RecUpdE (VarE o) [(fName,VarE v)])
+      theLens = VarE 'lens `AppE` (VarE fName) `AppE` setter
+      gTyName (KindedTV n _) = n
+      gTyName (PlainTV n) = n
+      tyNames = map gTyName tyVars
+  return $
+    InstanceD
+      []
+      (ConT clsName
+        `AppT` (foldl AppT (ConT name) (map VarT tyNames))
+        `AppT` fType)
+      [ValD (VarP (mkName propName)) (NormalB theLens) []]
+  where
+    clsName = mkName ("Has" ++ capitalize propName)
+    findField [] = error $ "hasProperty: " ++
+                   "could not find field " ++ propName ++ " on " ++ show name
+    findField (x@(n,_,_):xs)
+      | take (length propName) (reverse (nameBase n)) == reverse propName = x
+      | otherwise = findField xs
+
+hasProperties :: Name -> [String] -> Q [Dec]
+hasProperties name = mapM (hasProperty name)
+
+
+capitalize :: String -> String
+capitalize [] = []
+capitalize (x:xs) = toUpper x : xs

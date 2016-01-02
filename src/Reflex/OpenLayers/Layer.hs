@@ -37,7 +37,7 @@ module Reflex.OpenLayers.Layer (
   -- Properties
   , HasOpacity(..)
   , HasSource(..)
-  , HasVisibility(..)
+  , HasVisible(..)
   , HasLayers (..)
   , HasExtent(..)
   , HasMinResolution(..)
@@ -49,7 +49,7 @@ import Reflex.OpenLayers.Source (
   , Source
   )
 import qualified Reflex.OpenLayers.Source as S
-import Reflex.OpenLayers.Util (initOLProp, initOLPropWith)
+import Reflex.OpenLayers.Util
 
 import Reflex
 import Reflex.Dom
@@ -64,6 +64,7 @@ import GHCJS.Marshal (ToJSVal(toJSVal))
 import GHCJS.Types
 import GHCJS.Foreign (isNull)
 import GHCJS.DOM.Types (toJSString)
+import Language.Haskell.TH (reify)
 
 type Opacity = Double
 
@@ -85,15 +86,17 @@ foreign import javascript unsafe "new ol['layer'][$1]($2)"
 --
 -- Layer
 --
-class HasOpacity o a | o->a where opacity :: Lens' o a
-class HasSource o a | o->a where source :: Lens' o a
-class HasVisibility o a | o->a where visible :: Lens' o a
-class HasExtent o a | o->a where extent :: Lens' o a
-class HasLayers o a | o->a where layers :: Lens' o a
-class HasMinResolution o a | o->a where minResolution :: Lens' o a
-class HasMaxResolution o a | o->a where maxResolution :: Lens' o a
+declareProperties [
+    "opacity"
+  , "source"
+  , "visible"
+  , "extent"
+  , "layers"
+  , "minResolution"
+  , "maxResolution"
+  ]
 
-class ( HasVisibility (l t) (Dynamic t Bool)
+class ( HasVisible (l t) (Dynamic t Bool)
       , HasOpacity (l t) (Dynamic t Opacity)
       , HasExtent (l t) (Maybe Extent)
       , HasMinResolution (l t) (Maybe Double)
@@ -122,7 +125,7 @@ instance HasOpacity (LayerConfig t) (Dynamic t Opacity) where
     lens (\(LayerConfig l) -> l^.opacity)
          (\(LayerConfig l) o -> LayerConfig (l & opacity.~o))
 
-instance HasVisibility (LayerConfig t) (Dynamic t Bool) where
+instance HasVisible (LayerConfig t) (Dynamic t Bool) where
   visible =
     lens (\(LayerConfig l) -> l^.visible)
          (\(LayerConfig l) o -> LayerConfig (l & visible.~o))
@@ -171,7 +174,15 @@ data ImageConfig t
      , _imageConfig_maxResolution    :: Maybe Double
      }
 
-makeLenses ''ImageConfig
+hasProperties ''ImageConfig [
+    "opacity"
+  , "source"
+  , "visible"
+  , "extent"
+  , "minResolution"
+  , "maxResolution"
+  ]
+
 
 image :: Reflex t => Dynamic t (SourceConfig t) -> LayerConfig t
 image src = LayerConfig $ ImageConfig {
@@ -192,7 +203,7 @@ initSource = initOLPropWith "setSource" source (S.source)
 
 initVisible
   :: ( MonadWidget t m
-     , HasVisibility s (Dynamic t Bool)
+     , HasVisible s (Dynamic t Bool)
      ) => JSVal -> s -> m ()
 initVisible = initOLProp "setVisible" visible
 
@@ -215,19 +226,6 @@ instance IsLayerConfig ImageConfig t where
     initSource imgVal cfg
     return (Layer (Image imgVal))
 
-instance HasOpacity (ImageConfig t) (Dynamic t Opacity) where
-  opacity = imageConfig_opacity
-instance HasSource (ImageConfig t) (Dynamic t (SourceConfig t)) where
-  source = imageConfig_source
-instance HasVisibility (ImageConfig t) (Dynamic t Bool) where
-  visible = imageConfig_visible
-instance HasExtent (ImageConfig t) (Maybe Extent) where
-  extent = imageConfig_extent
-instance HasMinResolution (ImageConfig t) (Maybe Double) where
-  minResolution = imageConfig_minResolution
-instance HasMaxResolution (ImageConfig t) (Maybe Double) where
-  maxResolution = imageConfig_maxResolution
-
 
 
 --
@@ -246,9 +244,14 @@ data TileConfig t
      , _tileConfig_minResolution    :: Maybe Double
      , _tileConfig_maxResolution    :: Maybe Double
      }
-makeLenses ''TileConfig
-
-makeLenses ''Tile
+hasProperties ''TileConfig [
+    "opacity"
+  , "source"
+  , "visible"
+  , "extent"
+  , "minResolution"
+  , "maxResolution"
+  ]
 
 tile :: Reflex t => Dynamic t (SourceConfig t) -> LayerConfig t
 tile src = LayerConfig $ TileConfig {
@@ -269,18 +272,6 @@ instance IsLayerConfig TileConfig t where
     initSource imgVal cfg
     return (Layer (Tile imgVal))
 
-instance HasOpacity (TileConfig t) (Dynamic t Opacity) where
-  opacity = tileConfig_opacity
-instance HasSource (TileConfig t) (Dynamic t (SourceConfig t)) where
-  source = tileConfig_source
-instance HasVisibility (TileConfig t) (Dynamic t Bool) where
-  visible = tileConfig_visible
-instance HasExtent (TileConfig t) (Maybe Extent) where
-  extent = tileConfig_extent
-instance HasMinResolution (TileConfig t) (Maybe Double) where
-  minResolution = tileConfig_minResolution
-instance HasMaxResolution (TileConfig t) (Maybe Double) where
-  maxResolution = tileConfig_maxResolution
 
 --
 -- Group
@@ -298,7 +289,14 @@ data GroupConfig t
      , _groupConfig_minResolution    :: Maybe Double
      , _groupConfig_maxResolution    :: Maybe Double
      }
-makeLenses ''GroupConfig
+hasProperties ''GroupConfig [
+    "opacity"
+  , "layers"
+  , "visible"
+  , "extent"
+  , "minResolution"
+  , "maxResolution"
+  ]
 
 instance Reflex t => Default (GroupConfig t) where
   def = GroupConfig {
@@ -320,17 +318,3 @@ instance IsLayerConfig GroupConfig t where
       mkLayer "Group" opts
     initLayerCommon jsVal cfg
     return (Layer (Group jsVal))
-
-instance HasOpacity (GroupConfig t) (Dynamic t Opacity) where
-  opacity = groupConfig_opacity
-instance HasVisibility (GroupConfig t) (Dynamic t Bool) where
-  visible = groupConfig_visible
-instance HasExtent (GroupConfig t) (Maybe Extent) where
-  extent = groupConfig_extent
-instance HasMinResolution (GroupConfig t) (Maybe Double) where
-  minResolution = groupConfig_minResolution
-instance HasMaxResolution (GroupConfig t) (Maybe Double) where
-  maxResolution = groupConfig_maxResolution
-
-instance HasLayers (GroupConfig t) [LayerConfig t] where
-  layers = groupConfig_layers

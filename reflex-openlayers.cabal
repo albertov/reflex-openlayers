@@ -25,7 +25,8 @@ library
     file-embed,
     lens,
     dependent-sum,
-    bytestring
+    bytestring,
+    template-haskell
   exposed-modules:
       Reflex.OpenLayers
     , Reflex.OpenLayers.Source

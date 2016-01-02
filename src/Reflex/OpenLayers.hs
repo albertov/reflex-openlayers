@@ -25,57 +25,40 @@ module Reflex.OpenLayers (
   , css
 ) where
 
-import Reflex.OpenLayers.Event (on_)
 import Reflex.OpenLayers.Layer
-import Reflex.OpenLayers.Util (initProp, wrapObservableProp)
+import Reflex.OpenLayers.Util
 
-import Control.Lens (Lens', makeLenses, (^.))
+import Control.Lens (lens, (^.))
 import Control.Monad (liftM, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString (ByteString)
-import Data.Default (Default(def))
-import Data.Maybe (fromJust)
+import Data.Default (Default)
 import Data.Typeable (Typeable)
 import Data.FileEmbed (embedFile)
 import qualified Data.Map as M
 import Data.Monoid
-import Data.Dependent.Sum (DSum (..))
 
 import qualified JavaScript.Object as O
 import GHCJS.DOM.HTMLDivElement (castToHTMLDivElement)
 import GHCJS.DOM.Element (toElement)
 import GHCJS.DOM.Types (unElement)
-import GHCJS.Types (JSVal, JSString)
-import GHCJS.Marshal (ToJSVal(toJSVal), fromJSVal)
-import GHCJS.Marshal.Pure (pToJSVal, pFromJSVal)
-import Reflex.Host.Class (newEventWithTrigger)
+import GHCJS.Types (JSVal)
+import GHCJS.Marshal (ToJSVal(toJSVal))
 import Reflex.Dom
-import Reflex.Dom.Widget.Input (HasAttributes(..))
 
 import Prelude hiding (map)
 
 -- Property lenses
 
-class HasMapView l v | l->v where
-  mapView :: Lens' l v
-
-class HasResolution l v | l->v where
-  resolution :: Lens' l v
-
-class HasSetResolution l v | l->v where
-  setResolution :: Lens' l v
-
-class HasCenter l v | l->v where
-  center :: Lens' l v
-
-class HasSetCenter l v | l->v where
-  setCenter :: Lens' l v
-
-class HasRotation l v | l->v where
-  rotation :: Lens' l v
-class HasSetRotation l v | l->v where
-  setRotation :: Lens' l v
-
+declareProperties [
+    "mapView"
+  , "resolution"
+  , "setResolution"
+  , "center"
+  , "setCenter"
+  , "rotation"
+  , "setRotation"
+  ]
 
 --
 -- View
@@ -94,20 +77,14 @@ data ViewConfig t
     , _viewConfig_setCenter     :: Event t Coordinates
     , _viewConfig_setRotation   :: Event t Rotation
     }
-makeLenses ''ViewConfig
-
-instance HasCenter (ViewConfig t) (Coordinates) where
-  center = viewConfig_center
-instance HasResolution (ViewConfig t) Resolution where
-  resolution = viewConfig_resolution
-instance HasSetResolution (ViewConfig t) (Event t Resolution) where
-  setResolution = viewConfig_setResolution
-instance HasSetCenter (ViewConfig t) (Event t Coordinates) where
-  setCenter = viewConfig_setCenter
-instance HasRotation (ViewConfig t) (Rotation) where
-  rotation = viewConfig_rotation
-instance HasSetRotation (ViewConfig t) (Event t Rotation) where
-  setRotation = viewConfig_setRotation
+hasProperties ''ViewConfig [
+    "resolution"
+  , "setResolution"
+  , "center"
+  , "setCenter"
+  , "rotation"
+  , "setRotation"
+  ]
 
 instance Reflex t => Default (ViewConfig t) where
   def = ViewConfig {
@@ -126,14 +103,11 @@ data View t
     , _view_rotation   :: Dynamic t Rotation
     , _view_jsval      :: JSVal
     }
-makeLenses ''View
-
-instance HasCenter (View t) (Dynamic t (Maybe Coordinates)) where
-  center = view_center
-instance HasResolution (View t) (Dynamic t (Maybe Resolution)) where
-  resolution = view_resolution
-instance HasRotation (View t) (Dynamic t Rotation) where
-  rotation = view_rotation
+hasProperties ''View [
+    "resolution"
+  , "center"
+  , "rotation"
+  ]
 
 view :: MonadWidget t m => ViewConfig t -> m (View t)
 view cfg = do
@@ -165,20 +139,17 @@ foreign import javascript unsafe "new ol['View']({})" newView :: IO JSVal
 data MapConfig t
   = MapConfig {
       _mapConfig_attributes :: Dynamic t (M.Map String String)
-    , _mapConfig_view       :: ViewConfig t
+    , _mapConfig_mapView    :: ViewConfig t
     , _mapConfig_layers     :: Dynamic t [Layer t]
     }
-makeLenses ''MapConfig
+hasProperties ''MapConfig [
+    "mapView"
+  , "layers"
+  ]
 
 instance HasAttributes (MapConfig t) where
   type Attrs (MapConfig t) = Dynamic t (M.Map String String)
-  attributes = mapConfig_attributes
-
-instance HasMapView (MapConfig t) (ViewConfig t) where
-  mapView = mapConfig_view
-
-instance HasLayers (MapConfig t) (Dynamic t [Layer t]) where
-  layers = mapConfig_layers
+  attributes = lens _mapConfig_attributes (\o v -> o {_mapConfig_attributes=v})
 
 instance HasCenter (MapConfig t) (Coordinates) where
   center = mapView . center
@@ -196,19 +167,19 @@ instance HasSetRotation (MapConfig t) (Event t Rotation) where
 instance Reflex t => Default (MapConfig t) where
   def = MapConfig {
         _mapConfig_attributes  = constDyn mempty
-      , _mapConfig_view        = def
+      , _mapConfig_mapView     = def
       , _mapConfig_layers      = constDyn []
     }
 
 data Map t
   = Map {
-      _map_jsval  :: JSVal
-    , _map_view   :: View t
+      _map_jsval   :: JSVal
+    , _map_mapView :: View t
     }
-makeLenses ''Map
+hasProperties ''Map [
+    "mapView"
+  ]
 
-instance HasMapView (Map t) (View t) where
-  mapView = map_view
 
 instance HasCenter (Map t) (Dynamic t (Maybe Coordinates)) where
   center = mapView . center
@@ -219,8 +190,9 @@ instance HasRotation (Map t) (Dynamic t Rotation) where
 
 
 map :: (Typeable t, MonadWidget t m) => MapConfig t -> m (Map t)
-map cfg@MapConfig{..} = do
-  element <- liftM castToHTMLDivElement $ buildEmptyElement "div" (cfg^.attributes)
+map cfg = do
+  element <- liftM castToHTMLDivElement $
+               buildEmptyElement "div" (cfg^.attributes)
   let jsTarget = unElement (toElement element)
   v <- view (cfg^.mapView)
   jsMap <- liftIO $ do
@@ -230,10 +202,11 @@ map cfg@MapConfig{..} = do
   initProp (const (liftIO . (toJSVal >=> olMap_setLayers jsMap)))
            layers jsMap cfg
   postBuild <- getPostBuild
-  performEvent_ $ fmap (const (liftIO $ olMap_setTarget jsMap jsTarget)) postBuild
+  performEvent_ $
+    fmap (const (liftIO $ olMap_setTarget jsMap jsTarget)) postBuild
   return Map {
-        _map_view   = v
-      , _map_jsval  = jsMap
+        _map_mapView = v
+      , _map_jsval   = jsMap
     }
 
 
@@ -245,9 +218,6 @@ foreign import javascript unsafe "new ol['Map']($1)"
 
 foreign import javascript unsafe "$1['setTarget']($2)"
   olMap_setTarget :: JSVal -> JSVal -> IO ()
-
-foreign import javascript unsafe "$1['setView']($2)"
-  olMap_setView :: JSVal -> JSVal -> IO ()
 
 foreign import javascript unsafe "$1['getLayerGroup']()['setLayers'](new ol.Collection($2))"
   olMap_setLayers :: JSVal -> JSVal -> IO ()
