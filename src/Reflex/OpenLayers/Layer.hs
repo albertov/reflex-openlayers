@@ -35,7 +35,7 @@ import qualified JavaScript.Object as O
 import Data.Default (Default(def))
 import Data.Typeable (Typeable, cast)
 import Control.Lens
-import Control.Monad (when)
+import Control.Monad (when, liftM)
 import Control.Monad.IO.Class (liftIO)
 import GHCJS.Marshal (toJSVal)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
@@ -44,6 +44,7 @@ import GHCJS.Foreign (isNull)
 import GHCJS.Foreign.QQ
 import GHCJS.DOM.Types (toJSString)
 import Language.Haskell.TH (reify)
+import System.Mem.StableName
 
 type Opacity = Double
 
@@ -135,8 +136,8 @@ group :: Reflex t => Dynamic t [Layer t] -> Layer t
 group = Group def
 
 mkLayer :: MonadWidget t m => Layer t -> m JSVal
-mkLayer l =
-  case l of
+mkLayer l = do
+  r <- case l of
     Image{_source} -> do
       r <- liftIO [jsu|$r=new ol.layer.Image({});|]
       eNewSource <- dyn =<< mapDyn mkSource _source
@@ -150,10 +151,13 @@ mkLayer l =
         liftIO $ [jsu_|`r.setSource(`newSource);|]
       return r
     Group{_layers} -> do
-      -- FIXME: Don't recreate unchanged layers in order not to lose features
       r <- liftIO [jsu|$r=new ol.layer.Group({});|]
       eNewLayers <- dyn =<< mapDyn (mapM mkLayer) _layers
       addVoidAction $ ffor eNewLayers $ \newLayers -> liftIO $ do
         ls <- toJSVal newLayers
-        [jsu_|`r.setLayers(new ol.Collection(`ls));|]
+        [jsu_|h$updateGroupLayers(`r, `ls);|]
       return r
+  liftIO $ do
+    hash <- liftM hashStableName (makeStableName l)
+    [jsu_|`r["h$hash"]=`hash;|]
+  return r
