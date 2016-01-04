@@ -1,28 +1,40 @@
-resolver: lts-3.19
-compiler: ghcjs-0.2.0.20151029_ghc-7.10.2
+resolver: lts-3.20
+compiler: ghcjs-0.2.0.20151230.3_ghc-7.10.2
 compiler-check: match-exact
 setup-info:
   ghcjs:
     source:
-      ghcjs-0.2.0.20151029_ghc-7.10.2:
-        url: "https://github.com/nrolland/ghcjs/releases/download/v0.2.0.20151029/ghcjs-0.2.0.20151029.tar.gz"
+      ghcjs-0.2.0.20151230.3_ghc-7.10.2:
+        url: "https://github.com/nrolland/ghcjs/releases/download/v.0.2.0.20151230.3/ghcjs-0.2.0.20151230.3.tar.gz"
 
 packages:
 - '.'
 - location:
     git: https://github.com/ryantrinkle/reflex-dom.git
-    commit: a60ae687cdc284a8eb3776fc95aa2adefc51e7ec # hamishmack-master (improved-base compatible)
+    commit: 6ce47284bb4c9472f002f98437318a1ee6650ac4 # ghcjs-improved-base-2
   extra-dep: true
 - location:
     git: https://github.com/ghcjs/ghcjs-base.git
-    commit: 68bd5761e6a555d8a6780512215d9993dc6f2d82
+    commit: 23b1311a98c7981c7b98ac7d37a6fa9456c893d5
+  extra-dep: true
+  # for demo
+- location:
+    git: https://github.com/reflex-frp/reflex-dom-contrib.git
+    commit: 9650c93b47612068ecb4a5bb677cb8e6db393cb1 # ghcjs-improved-base-2
+  extra-dep: true
+- location:
+    git: https://github.com/ghcjs/ghcjs-ffiqq.git
+    commit: da31b18582542fcfceade5ef6b2aca66662b9e20
   extra-dep: true
 
 extra-deps:
-  - ghcjs-dom-0.2.3.0
+  - ghcjs-dom-0.2.3.1
   - reflex-0.3.2
   - ref-tf-0.4
   - these-0.6.2.0
+  # for demo
+  - readable-0.3.1
+  - string-conv-0.1
 
 flags: {}
 extra-package-dbs: []

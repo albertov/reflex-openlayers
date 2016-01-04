@@ -1,122 +1,69 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE JavaScriptFFI #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Reflex.OpenLayers.Source (
-    IsSource (..)
-  , Source
-  , IsSourceConfig (..)
-  , SourceConfig
-
-  , ImageWMSConfig (..)
-  , ImageWMS (..)
-  , imageWMS
-
-  , MapQuestConfig (..)
+    Source
   , MapQuestLayer (..)
-  , MapQuest (..)
+  , imageWMS
   , mapQuest
+  , mkSource
 ) where
 
-import qualified JavaScript.Object as O
+import Reflex
+import Reflex.Dom
+import Reflex.OpenLayers.Util ()
+
 import Data.Typeable (Typeable, cast)
 import qualified Data.Map as M
 import Control.Monad (liftM, forM_)
+import Control.Lens
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import GHCJS.Marshal (ToJSVal(toJSVal))
-import GHCJS.Marshal.Pure (pToJSVal)
+import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types (JSVal, JSString, jsval)
 import GHCJS.DOM.Types
-import Reflex.Dom (Reflex, MonadWidget)
+import GHCJS.Foreign.QQ
 
-class IsSourceConfig l where
-  source :: MonadIO m => l t -> m (Source t)
-
-data SourceConfig t =  forall l. IsSourceConfig l => SourceConfig (l t)
-
-instance IsSourceConfig SourceConfig where
-  source (SourceConfig s) = source s
-
-class Typeable l => IsSource l where
-  source_downcast :: Typeable t => Source t -> Maybe (l t)
-  source_downcast (Source l) = cast l
-  {-# INLINE source_downcast #-}
-
-data Source t =  forall l. (ToJSVal (l t), IsSource l) => Source (l t)
-
-
-
-instance ToJSVal (Source t) where
-  toJSVal (Source l) = toJSVal l
-
---
--- ImageWMS
---
-
-newtype ImageWMS t = ImageWMS JSVal deriving (ToJSVal, Typeable)
-
-instance IsSource ImageWMS
-
-instance IsSourceConfig ImageWMSConfig where
-  source ImageWMSConfig{..} = liftIO $ do
-    jsUrl <- toJSVal _imageWMSConfig_url
-    jsParams <- mapToJSVal _imageWMSConfig_params
-    opts <- O.create
-    O.setProp "url" jsUrl opts
-    O.setProp "params" jsParams opts
-    liftM (Source . ImageWMS) (mkSource "ImageWMS" opts)
-
-mapToJSVal m = do
-  o <- O.create
-  forM_ (M.toList m) $ \(k,v) -> do
-    O.setProp (toJSString k) (pToJSVal v) o
-  return (jsval o)
-
-data ImageWMSConfig t
-  = ImageWMSConfig {
-      _imageWMSConfig_url    :: String
-    , _imageWMSConfig_params :: M.Map String String
-    }
-
-imageWMS :: String -> M.Map String String -> SourceConfig t
-imageWMS url params = SourceConfig (ImageWMSConfig url params)
-
---
--- MapQuest
---
 
 data MapQuestLayer = OpenStreetMap | Satellite | Hybrid deriving (Show, Read)
 
-instance ToJSVal MapQuestLayer where
-  toJSVal OpenStreetMap = return (jsval ("osm" :: JSString))
-  toJSVal Satellite = return (jsval ("sat" :: JSString))
-  toJSVal Hybrid = return (jsval ("hyb" :: JSString))
+instance PToJSVal MapQuestLayer where
+  pToJSVal OpenStreetMap = jsval ("osm" :: JSString)
+  pToJSVal Satellite     = jsval ("sat" :: JSString)
+  pToJSVal Hybrid        = jsval ("hyb" :: JSString)
 
-newtype MapQuest t = MapQuest JSVal deriving (ToJSVal, Typeable)
-
-instance IsSource MapQuest
-
-instance IsSourceConfig MapQuestConfig where
-  source MapQuestConfig{..} = liftIO $ do
-    opts <- O.create
-    params <- O.create
-    layer <- toJSVal _mapQuestConfig_layer
-    O.setProp "layer" layer opts
-    liftM (Source . MapQuest) (mkSource "MapQuest" opts)
-
-data MapQuestConfig t
-  = MapQuestConfig {
-      _mapQuestConfig_layer :: MapQuestLayer
+data Source t
+  = ImageWMS {
+      _url    :: Dynamic t String
+    , _params :: Dynamic t (M.Map String String)
     }
+  | MapQuest {
+      _layer  :: MapQuestLayer
+    }
+makeLenses ''Source
 
-mapQuest :: MapQuestLayer -> SourceConfig t
-mapQuest layer = SourceConfig (MapQuestConfig layer)
+imageWMS
+  :: Reflex t
+  => Dynamic t String -> Dynamic t (M.Map String String) -> Source t
+imageWMS = ImageWMS
 
-foreign import javascript unsafe "new ol['source'][$1]($2)"
-  mkSource :: JSString -> O.Object -> IO JSVal
+mapQuest :: Reflex t => MapQuestLayer -> Source t
+mapQuest = MapQuest
+
+mkSource :: MonadWidget t m => Source t -> m JSVal
+mkSource s =
+  case s of
+    ImageWMS{_url, _params} -> do
+      r <- liftIO [jsu|$r=new ol.source.ImageWMS({params:{}});|]
+      eNewUrl <- dyn =<< mapDyn return _url
+      addVoidAction $ ffor eNewUrl $ \newUrl ->
+        liftIO $ [jsu_|`r.setUrl(`newUrl);|]
+      eNewParams <- dyn =<< mapDyn return _params
+      addVoidAction $ ffor eNewParams $ \newParams ->
+        liftIO $ [jsu_|`r.updateParams(`newParams);|]
+      return r
+    MapQuest{_layer} ->
+      liftIO [jsu|$r=new ol.source.MapQuest({layer:`_layer});|]

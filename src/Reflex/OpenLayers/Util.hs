@@ -1,4 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE JavaScriptFFI #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -21,15 +22,25 @@ import Reflex.Dom
 import Reflex.Host.Class (newEventWithTrigger)
 
 import Control.Lens (Lens', (^.), lens)
-import Control.Monad ((>=>))
+import Control.Monad (forM_, (>=>))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Dependent.Sum (DSum (..))
+import qualified Data.Map as M
 import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
-import GHCJS.Marshal.Pure (pToJSVal)
+import GHCJS.Marshal.Pure (PToJSVal(pToJSVal))
 import GHCJS.Types
 import GHCJS.DOM.Types (toJSString)
 import Language.Haskell.TH
+import qualified JavaScript.Object as O
 import Data.Char
+import System.IO.Unsafe (unsafePerformIO)
+
+instance PToJSVal a => PToJSVal (M.Map String a) where
+  pToJSVal m = unsafePerformIO $ do
+    o <- O.create
+    forM_ (M.toList m) $ \(k,v) -> do
+      O.setProp (toJSString k) (pToJSVal v) o
+    return (jsval o)
 
 initProp
   :: (ToJSVal a, MonadWidget t m)

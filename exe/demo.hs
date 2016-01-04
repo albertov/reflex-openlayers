@@ -14,26 +14,29 @@ import Safe (readMay)
 
 main :: IO ()
 main = mainWidgetWithCss OL.css $ mdo
-  mapWidget <- OL.map $ def
-    & OL.resolution    .~ 100000
-    & OL.setResolution .~ fmapMaybe readMay (updated (value resolutionInput))
-    & OL.setRotation .~ fmapMaybe readMay (updated (value rotationInput))
-    & OL.center  .~ (-10997148, 4569099)
-    & OL.setCenter  .~ eCenter
-    & OL.layers  .~ dynLayers
+  dynSrc <- holdDyn (OL.mapQuest (Satellite)) never
+  dynOpacity <- mapDyn (fromMaybe 0 . readMay) (value opacityInput)
+  let initialLayers = [
+          OL.tile dynSrc
+        , (OL.image $ constDyn $
+            OL.imageWMS
+              (constDyn "http://demo.boundlessgeo.com/geoserver/wms")
+              (constDyn ("LAYERS" =: "topp:states")))
+          & OL.opacity .~ dynOpacity
+          & OL.visible .~ value layerBox
+        ]
   dynLayers <- holdDyn initialLayers $
                  tag (fmap reverse (current dynLayers)) reverseButton
-  initialLayers <- mapM layer [
-        OL.tile dynSrc
-      , (OL.image $ constDyn $
-          OL.imageWMS "http://demo.boundlessgeo.com/geoserver/wms"
-          ("LAYERS" =: "topp:states"))
-        & OL.opacity .~ dynOpacity
-        & OL.visible .~ value layerBox
-      ]
-  dynSrc <- holdDyn (OL.mapQuest Satellite) never
-  dynOpacity <- mapDyn (fromMaybe 0 . readMay) (value opacityInput)
+  eMap <- OL.map $ def
+    & OL.view  .~ constDyn (def
+      & OL.zoom   .~ OL.Zoom 4
+      & OL.center .~ (-10997148, 4569099)
+      )
+    & OL.layers  .~ dynLayers
+  dynText =<< holdDyn "" (fmap (const "foo") eMap)
 
+
+{-
   rotationInput <- dtdd "rotation" $ do
     let d = mapWidget^.OL.rotation
     cur <- sample (current d)
@@ -44,19 +47,19 @@ main = mainWidgetWithCss OL.css $ mdo
     display d
     return input
 
-  resolutionInput <- dtdd "resolution" $ do
-    let dynResolution = mapWidget^.OL.resolution
+  zoomInput <- dtdd "zoom" $ do
+    let dynResolution = mapWidget^.OL.zoom
     curResolution <- sample (current dynResolution)
-    resolutionInput <- textInput $ def
+    zoomInput <- textInput $ def
       & textInputConfig_initialValue .~ show (fromMaybe 0 curResolution)
       & setValue .~ fmap (show . fromMaybe (-1))  (updated dynResolution)
       & attributes .~ constDyn ("type" =: "number")
     display dynResolution
-    return resolutionInput
+    return zoomInput
 
   eCenter <- dtdd "center" $ do
     let mover = do
-          mResolution <- current (mapWidget^.OL.resolution)
+          mResolution <- current (mapWidget^.OL.zoom)
           mCenter <- current (mapWidget^.OL.center)
           return $ do
             delta <- liftM (*10) mResolution
@@ -73,7 +76,7 @@ main = mainWidgetWithCss OL.css $ mdo
     display (mapWidget^.OL.center)
     return $ attachWithMaybe (\mFun dir -> fmap ($dir) mFun) mover
               $ leftmost [north, south, east, west]
-
+ -}
   (reverseButton,layerBox, opacityInput) <- dtdd "layers" $ do
     l <- checkbox True def
     o <- textInput $ def

@@ -1,54 +1,31 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE JavaScriptFFI #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE DefaultSignatures #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Reflex.OpenLayers.Layer (
-    IsLayer (..)
-  , Layer
-
-  , IsLayerConfig (..)
-  , LayerConfig
-
+    Layer
   , Extent (..)
   , Opacity
-
-  , ImageConfig (..)
-  , Image (..)
   , image
-
-  , TileConfig (..)
-  , Tile (..)
   , tile
-
-  , GroupConfig (..)
-  , Group (..)
+  , group
+  , mkLayer
 
   -- Properties
   , HasOpacity(..)
-  , HasSource(..)
   , HasVisible(..)
-  , HasLayers (..)
   , HasExtent(..)
   , HasMinResolution(..)
   , HasMaxResolution(..)
+  , HasZIndex(..)
 ) where
 
-import Reflex.OpenLayers.Source (
-    SourceConfig
-  , Source
-  )
-import qualified Reflex.OpenLayers.Source as S
+import Reflex.OpenLayers.Source (Source, mkSource)
 import Reflex.OpenLayers.Util
 
 import Reflex
@@ -60,9 +37,11 @@ import Data.Typeable (Typeable, cast)
 import Control.Lens
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
-import GHCJS.Marshal (ToJSVal(toJSVal))
+import GHCJS.Marshal (toJSVal)
+import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types
 import GHCJS.Foreign (isNull)
+import GHCJS.Foreign.QQ
 import GHCJS.DOM.Types (toJSString)
 import Language.Haskell.TH (reify)
 
@@ -73,248 +52,108 @@ data Extent
            , _yMin :: !Double
            , _xMax :: !Double
            , _yMax :: !Double
-           } deriving Show
+           } deriving (Show, Eq)
 
-instance ToJSVal Extent where
-  toJSVal Extent{..} = toJSVal (_xMin, _yMin, _xMax, _yMax)
+instance PToJSVal Extent where
+  pToJSVal (Extent x0 y0 x1 y1) = [jsu'|[`x0, `y0, `x1, `y1]|]
+instance PFromJSVal Extent where
+  pFromJSVal l = Extent [js'|`l[0]|] [js'|`l[1]|] [js'|`l[2]|] [js'|`l[3]|]
 
 
-
-foreign import javascript unsafe "new ol['layer'][$1]($2)"
-  mkLayer :: JSString -> O.Object -> IO JSVal
 
 --
 -- Layer
 --
 declareProperties [
     "opacity"
-  , "source"
   , "visible"
   , "extent"
-  , "layers"
+  , "zIndex"
   , "minResolution"
   , "maxResolution"
   ]
 
-class ( HasVisible (l t) (Dynamic t Bool)
-      , HasOpacity (l t) (Dynamic t Opacity)
-      , HasExtent (l t) (Maybe Extent)
-      , HasMinResolution (l t) (Maybe Double)
-      , HasMaxResolution (l t) (Maybe Double)
-      ) => IsLayerConfig l t where
-  layer :: MonadWidget t m => l t -> m (Layer t)
-
--- TODO: Remove once extent and minmax resolutions are dynamic
-layerOptions :: IsLayerConfig l t => l t -> IO O.Object
-layerOptions cfg = do
-  opts <- O.create
-  let set n v = when (not (isNull v)) (O.setProp n v opts)
-  toJSVal (cfg^.extent)  >>= set "extent"
-  toJSVal (cfg^.minResolution) >>= set "minResolution"
-  toJSVal (cfg^.maxResolution) >>= set "maxResolution"
-  return opts
-
-data LayerConfig t =
-  forall l. IsLayerConfig l t => LayerConfig (l t)
-
-instance IsLayerConfig LayerConfig t where
-  layer (LayerConfig l) = layer l
-
-instance HasOpacity (LayerConfig t) (Dynamic t Opacity) where
-  opacity =
-    lens (\(LayerConfig l) -> l^.opacity)
-         (\(LayerConfig l) o -> LayerConfig (l & opacity.~o))
-
-instance HasVisible (LayerConfig t) (Dynamic t Bool) where
-  visible =
-    lens (\(LayerConfig l) -> l^.visible)
-         (\(LayerConfig l) o -> LayerConfig (l & visible.~o))
-instance HasExtent (LayerConfig t) (Maybe Extent) where
-  extent =
-    lens (\(LayerConfig l) -> l^.extent)
-         (\(LayerConfig l) o -> LayerConfig (l & extent.~o))
-instance HasMinResolution (LayerConfig t) (Maybe Double) where
-  minResolution =
-    lens (\(LayerConfig l) -> l^.minResolution)
-         (\(LayerConfig l) o -> LayerConfig (l & minResolution.~o))
-instance HasMaxResolution (LayerConfig t) (Maybe Double) where
-  maxResolution =
-    lens (\(LayerConfig l) -> l^.maxResolution)
-         (\(LayerConfig l) o -> LayerConfig (l & maxResolution.~o))
-
-class ( Typeable l, ToJSVal (l t)
-      ) => IsLayer l t where
-  layer_downcast :: Typeable t => Layer t -> Maybe (l t)
-  layer_downcast (Layer l) = cast l
-  {-# INLINE layer_downcast #-}
-
-data Layer t =  forall l. IsLayer l t => Layer (l t)
-
-instance IsLayer Layer t where
-  layer_downcast = Just
-
-
-instance ToJSVal (Layer t) where
-  toJSVal (Layer l) = toJSVal l
-
---
--- Image
---
-
-newtype Image t = Image JSVal deriving (Typeable, ToJSVal)
-instance IsLayer Image t
-
-data ImageConfig t
-  = ImageConfig {
-       _imageConfig_source           :: Dynamic t (SourceConfig t)
-     , _imageConfig_opacity          :: Dynamic t Opacity
-     , _imageConfig_visible          :: Dynamic t Bool
-     , _imageConfig_extent           :: Maybe Extent
-     , _imageConfig_minResolution    :: Maybe Double
-     , _imageConfig_maxResolution    :: Maybe Double
-     }
-
-hasProperties ''ImageConfig [
+data LayerBase t
+  = LayerBase {
+      _layerBase_opacity       :: Dynamic t Opacity
+    , _layerBase_visible       :: Dynamic t Bool
+    , _layerBase_zIndex        :: Dynamic t Int
+    , _layerBase_extent        :: Dynamic t (Maybe Extent)
+    , _layerBase_minResolution :: Dynamic t (Maybe Double)
+    , _layerBase_maxResolution :: Dynamic t (Maybe Double)
+    }
+hasProperties ''LayerBase [
     "opacity"
-  , "source"
   , "visible"
+  , "zIndex"
   , "extent"
   , "minResolution"
   , "maxResolution"
   ]
-
-
-image :: Reflex t => Dynamic t (SourceConfig t) -> LayerConfig t
-image src = LayerConfig $ ImageConfig {
-       _imageConfig_source           = src
-     , _imageConfig_opacity          = constDyn 1
-     , _imageConfig_visible          = constDyn True
-     , _imageConfig_extent           = Nothing
-     , _imageConfig_minResolution    = Nothing
-     , _imageConfig_maxResolution    = Nothing
+instance Reflex t => Default (LayerBase t) where
+  def = LayerBase {
+       _layerBase_opacity          = constDyn 1
+     , _layerBase_visible          = constDyn True
+     , _layerBase_zIndex           = constDyn 0
+     , _layerBase_extent           = constDyn Nothing
+     , _layerBase_minResolution    = constDyn Nothing
+     , _layerBase_maxResolution    = constDyn Nothing
      }
 
+data Layer t
+  = Image { _layerBase :: LayerBase t
+          , _source    :: Dynamic t (Source t)
+          }
+  | Tile  { _layerBase :: LayerBase t
+          , _source    :: Dynamic t (Source t)
+          }
+  | Group { _layerBase :: LayerBase t
+          , _layers    :: Dynamic t [Layer t]
+          }
+makeLenses ''Layer
 
-initSource
-  :: ( S.IsSourceConfig l, MonadWidget t m
-     , HasSource s (Dynamic t (l t1))
-     ) => JSVal -> s -> m ()
-initSource = initOLPropWith "setSource" source (S.source)
+instance HasOpacity (Layer t) (Dynamic t Opacity) where
+  opacity = layerBase . opacity
+instance HasVisible (Layer t) (Dynamic t Bool) where
+  visible = layerBase . visible
+instance HasZIndex (Layer t) (Dynamic t Int) where
+  zIndex = layerBase . zIndex
+instance HasExtent (Layer t) (Dynamic t (Maybe Extent)) where
+  extent = layerBase . extent
+instance HasMinResolution (Layer t) (Dynamic t (Maybe Double)) where
+  minResolution = layerBase . minResolution
+instance HasMaxResolution (Layer t) (Dynamic t (Maybe Double)) where
+  maxResolution = layerBase . maxResolution
 
-initVisible
-  :: ( MonadWidget t m
-     , HasVisible s (Dynamic t Bool)
-     ) => JSVal -> s -> m ()
-initVisible = initOLProp "setVisible" visible
+image :: Reflex t => Dynamic t (Source t) -> Layer t
+image = Image def
 
-initOpacity
-  :: ( MonadWidget t m
-     , HasOpacity s (Dynamic t Opacity)
-     ) => JSVal -> s -> m ()
-initOpacity = initOLProp "setOpacity" opacity
+tile :: Reflex t => Dynamic t (Source t) -> Layer t
+tile = Tile def
 
-initLayerCommon jsVal cfg = do
-  initVisible jsVal cfg
-  initOpacity jsVal cfg
+group :: Reflex t => Dynamic t [Layer t] -> Layer t
+group = Group def
 
-instance IsLayerConfig ImageConfig t where
-  layer cfg@ImageConfig{..} = do
-    imgVal <- liftIO $ do
-      imgOpts <- layerOptions cfg
-      mkLayer "Image" imgOpts
-    initLayerCommon imgVal cfg
-    initSource imgVal cfg
-    return (Layer (Image imgVal))
-
-
-
---
--- Tile
---
-
-newtype Tile t = Tile JSVal deriving (Typeable, ToJSVal)
-instance IsLayer Tile t
-
-data TileConfig t
-  = TileConfig {
-       _tileConfig_source           :: Dynamic t (SourceConfig t)
-     , _tileConfig_opacity          :: Dynamic t Opacity
-     , _tileConfig_visible          :: Dynamic t Bool
-     , _tileConfig_extent           :: Maybe Extent
-     , _tileConfig_minResolution    :: Maybe Double
-     , _tileConfig_maxResolution    :: Maybe Double
-     }
-hasProperties ''TileConfig [
-    "opacity"
-  , "source"
-  , "visible"
-  , "extent"
-  , "minResolution"
-  , "maxResolution"
-  ]
-
-tile :: Reflex t => Dynamic t (SourceConfig t) -> LayerConfig t
-tile src = LayerConfig $ TileConfig {
-       _tileConfig_source           = src
-     , _tileConfig_opacity          = constDyn 1
-     , _tileConfig_visible          = constDyn True
-     , _tileConfig_extent           = Nothing
-     , _tileConfig_minResolution    = Nothing
-     , _tileConfig_maxResolution    = Nothing
-     }
-
-instance IsLayerConfig TileConfig t where
-  layer cfg@TileConfig{..} = do
-    imgVal <- liftIO $ do
-      imgOpts <- layerOptions cfg
-      mkLayer "Tile" imgOpts
-    initLayerCommon imgVal cfg
-    initSource imgVal cfg
-    return (Layer (Tile imgVal))
-
-
---
--- Group
---
-
-newtype Group t = Group JSVal deriving (Typeable, ToJSVal)
-instance IsLayer Group t
-
-data GroupConfig t
-  = GroupConfig {
-       _groupConfig_layers           :: [LayerConfig t]
-     , _groupConfig_opacity          :: Dynamic t Opacity
-     , _groupConfig_visible          :: Dynamic t Bool
-     , _groupConfig_extent           :: Maybe Extent
-     , _groupConfig_minResolution    :: Maybe Double
-     , _groupConfig_maxResolution    :: Maybe Double
-     }
-hasProperties ''GroupConfig [
-    "opacity"
-  , "layers"
-  , "visible"
-  , "extent"
-  , "minResolution"
-  , "maxResolution"
-  ]
-
-instance Reflex t => Default (GroupConfig t) where
-  def = GroupConfig {
-       _groupConfig_layers           = []
-     , _groupConfig_opacity          = constDyn 1
-     , _groupConfig_visible          = constDyn True
-     , _groupConfig_extent           = Nothing
-     , _groupConfig_minResolution    = Nothing
-     , _groupConfig_maxResolution    = Nothing
-     }
-
-instance IsLayerConfig GroupConfig t where
-  layer cfg  = do
-    layers <- mapM (\(LayerConfig l) -> layer l) (cfg^.layers)
-    jsVal <- liftIO $ do
-      opts <- layerOptions cfg
-      jsLayers <- toJSVal layers
-      O.setProp "layers" jsLayers opts
-      mkLayer "Group" opts
-    initLayerCommon jsVal cfg
-    return (Layer (Group jsVal))
+mkLayer :: MonadWidget t m => Layer t -> m JSVal
+mkLayer l =
+  case l of
+    Image{_source} -> do
+      r <- liftIO [jsu|$r=new ol.layer.Image({});|]
+      eNewSource <- dyn =<< mapDyn mkSource _source
+      addVoidAction $ ffor eNewSource $ \newSource ->
+        liftIO $ [jsu_|`r.setSource(`newSource);|]
+      return r
+    Tile{_source} -> do
+      r <- liftIO [jsu|$r=new ol.layer.Tile({});|]
+      eNewSource <- dyn =<< mapDyn mkSource _source
+      addVoidAction $ ffor eNewSource $ \newSource ->
+        liftIO $ [jsu_|`r.setSource(`newSource);|]
+      return r
+    Group{_layers} -> do
+      -- FIXME: Don't recreate unchanged layers in order not to lose features
+      r <- liftIO [jsu|$r=new ol.layer.Group({});|]
+      eNewLayers <- dyn =<< mapDyn (mapM mkLayer) _layers
+      addVoidAction $ ffor eNewLayers $ \newLayers -> liftIO $ do
+        ls <- toJSVal newLayers
+        [jsu_|`r.setLayers(new ol.Collection(`ls));|]
+      return r
