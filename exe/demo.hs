@@ -18,8 +18,7 @@ main = mainWidgetWithCss olCss $ mdo
     & layers  .~ dynLayers
 
   dynLayers <- dtdd "layers" $ mdo
-    let asMap = M.fromList $ zip [0..] initialLayers
-    dynLayerMap <- foldDyn ($) asMap $ switch $ current itemChangeEvent
+    dynLayerMap <- foldDyn ($) initialLayers $ switch $ current itemChangeEvent
     events <- el "ul" $ do
       listWithKey dynLayerMap layerWidget
     let combineItemChanges
@@ -28,7 +27,7 @@ main = mainWidgetWithCss olCss $ mdo
           . map (\(k, v) -> fmap (flip M.update k) v)
           . M.toList
     itemChangeEvent <- mapDyn combineItemChanges events
-    mapDyn M.elems dynLayerMap
+    return dynLayerMap
 
   dynView <- dtdd "view" $ mdo
     dynView <- foldDyn ($) initialView $ mergeWith(.) [
@@ -80,12 +79,12 @@ main = mainWidgetWithCss olCss $ mdo
     return dynView
   return ()
 
-initialLayers =
-  [ tile (constDyn (mapQuest Satellite))
-  , image $ constDyn $
+initialLayers = fromList
+  [ tile $ mapQuest Satellite
+  , image $
       imageWMS
-        (constDyn "http://demo.boundlessgeo.com/geoserver/wms")
-        (constDyn ("LAYERS" =: "topp:states"))
+        "http://demo.boundlessgeo.com/geoserver/wms"
+        ("LAYERS" =: "topp:states")
   ]
 
 initialView = def & center .~ Coordinates (-10997148) 4569099
@@ -97,10 +96,10 @@ layerWidget
   -> m (Event t (Layer t -> Maybe (Layer t)))
 layerWidget ix layer = el "li" $ do
 
-  dynVisible <- liftM joinDyn $ mapDyn (^.visible) layer
+  dynVisible <- mapDyn (^.visible) layer
   eVisible <- checkboxView (constDyn mempty) dynVisible
 
-  dynOpacity <- liftM joinDyn $ mapDyn (^.opacity) layer
+  dynOpacity <- mapDyn (^.opacity) layer
   curOpacity <- sample (current dynOpacity)
   opacityInput <- htmlTextInput "number" $ def
     & widgetConfig_initialValue .~ show curOpacity
@@ -110,8 +109,8 @@ layerWidget ix layer = el "li" $ do
   eDelete <- button "delete"
 
   return $ mergeWith (>=>) [
-      fmap (\v l -> Just (l & visible .~ constDyn v)) eVisible
-    , fmap (\v l -> Just (l & opacity .~ constDyn v)) eOpacity
+      fmap (\v l -> Just (l & visible .~ v)) eVisible
+    , fmap (\v l -> Just (l & opacity .~ v)) eOpacity
     , fmap (\_ _ -> Nothing) eDelete
     ]
 

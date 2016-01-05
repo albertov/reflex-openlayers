@@ -1,4 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -11,10 +12,13 @@ module Reflex.OpenLayers.Layer (
     Layer (..)
   , Extent (..)
   , Opacity
+  , LayerSet
   , image
   , tile
   , group
   , mkLayer
+  , fromList
+  , pushLayer
 
   -- Properties
   , HasOpacity(..)
@@ -31,19 +35,16 @@ import Reflex.OpenLayers.Util
 import Reflex
 import Reflex.Dom
 
-import qualified JavaScript.Object as O
 import Data.Default (Default(def))
-import Data.Typeable (Typeable, cast)
+import qualified Data.Map as M
+import Data.Monoid
 import Control.Lens
 import Control.Monad (when, liftM)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO(liftIO))
 import GHCJS.Marshal (toJSVal)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types
-import GHCJS.Foreign (isNull)
 import GHCJS.Foreign.QQ
-import GHCJS.DOM.Types (toJSString)
-import System.Mem.StableName
 
 type Opacity = Double
 
@@ -64,87 +65,96 @@ instance PFromJSVal Extent where
 -- Layer
 --
 
-data LayerBase t
+data LayerBase
   = LayerBase {
-      _layerBaseOpacity       :: Dynamic t Opacity
-    , _layerBaseVisible       :: Dynamic t Bool
-    , _layerBaseZIndex        :: Dynamic t Int
-    , _layerBaseExtent        :: Dynamic t (Maybe Extent)
-    , _layerBaseMinResolution :: Dynamic t (Maybe Double)
-    , _layerBaseMaxResolution :: Dynamic t (Maybe Double)
+      _layerBaseOpacity       :: Opacity
+    , _layerBaseVisible       :: Bool
+    , _layerBaseZIndex        :: Int
+    , _layerBaseExtent        :: (Maybe Extent)
+    , _layerBaseMinResolution :: (Maybe Double)
+    , _layerBaseMaxResolution :: (Maybe Double)
     }
 makeFields ''LayerBase
 
-instance Reflex t => Default (LayerBase t) where
+instance Default LayerBase where
   def = LayerBase {
-       _layerBaseOpacity          = constDyn 1
-     , _layerBaseVisible          = constDyn True
-     , _layerBaseZIndex           = constDyn 0
-     , _layerBaseExtent           = constDyn Nothing
-     , _layerBaseMinResolution    = constDyn Nothing
-     , _layerBaseMaxResolution    = constDyn Nothing
+       _layerBaseOpacity          = 1
+     , _layerBaseVisible          = True
+     , _layerBaseZIndex           = 0
+     , _layerBaseExtent           = Nothing
+     , _layerBaseMinResolution    = Nothing
+     , _layerBaseMaxResolution    = Nothing
      }
 
+type LayerSet t = M.Map Int (Layer t)
+
+fromList :: [Layer t] -> LayerSet t
+fromList = M.fromList . zip [0..]
+
+pushLayer :: Layer t -> LayerSet t -> LayerSet t
+pushLayer v m = case M.maxViewWithKey m of
+  Nothing          -> M.singleton (toEnum 0) v
+  Just ((k, _), _) -> M.insert (succ k) v m
+
+
 data Layer t
-  = Image { _layerBase :: LayerBase t
-          , _source    :: Dynamic t (Source t)
+  = Image { _layerBase :: LayerBase
+          , _source    :: Source t
           }
-  | Tile  { _layerBase :: LayerBase t
-          , _source    :: Dynamic t (Source t)
+  | Tile  { _layerBase :: LayerBase
+          , _source    :: Source t
           }
-  | Group { _layerBase :: LayerBase t
-          , _layers    :: Dynamic t [Layer t]
+  | Group { _layerBase :: LayerBase
+          , _layers    :: Dynamic t (LayerSet t)
           }
 makeLenses ''Layer
 
-instance HasOpacity (Layer t) (Dynamic t Opacity) where
+instance HasOpacity (Layer t) (Opacity) where
   opacity = layerBase . opacity
-instance HasVisible (Layer t) (Dynamic t Bool) where
+instance HasVisible (Layer t) (Bool) where
   visible = layerBase . visible
-instance HasZIndex (Layer t) (Dynamic t Int) where
+instance HasZIndex (Layer t) (Int) where
   zIndex = layerBase . zIndex
-instance HasExtent (Layer t) (Dynamic t (Maybe Extent)) where
+instance HasExtent (Layer t) ((Maybe Extent)) where
   extent = layerBase . extent
-instance HasMinResolution (Layer t) (Dynamic t (Maybe Double)) where
+instance HasMinResolution (Layer t) ((Maybe Double)) where
   minResolution = layerBase . minResolution
-instance HasMaxResolution (Layer t) (Dynamic t (Maybe Double)) where
+instance HasMaxResolution (Layer t) ((Maybe Double)) where
   maxResolution = layerBase . maxResolution
 
-image :: Reflex t => Dynamic t (Source t) -> Layer t
+image :: Reflex t => (Source t) -> Layer t
 image = Image def
 
-tile :: Reflex t => Dynamic t (Source t) -> Layer t
+tile :: Reflex t => (Source t) -> Layer t
 tile = Tile def
 
-group :: Reflex t => Dynamic t [Layer t] -> Layer t
+group :: Reflex t => Dynamic t (LayerSet t) -> Layer t
 group = Group def
 
-mkLayer :: MonadWidget t m => Layer t -> m JSVal
-mkLayer l = do
+mkLayer :: MonadWidget t m => (Int, Layer t) -> m JSVal
+mkLayer (key,l) = do
   r <- case l of
     Image{_source} -> do
-      r <- liftIO [jsu|$r=new ol.layer.Image({});|]
-      dynInitializeWith mkSource _source $ \newSource ->
-        liftIO $ [jsu_|`r.setSource(`newSource);|]
-      return r
+      s <- mkSource _source
+      liftIO [jsu|$r=new ol.layer.Image({source:`s});|]
     Tile{_source} -> do
-      r <- liftIO [jsu|$r=new ol.layer.Tile({});|]
-      dynInitializeWith mkSource _source $ \newSource ->
-        liftIO $ [jsu_|`r.setSource(`newSource);|]
-      return r
+      s <- mkSource _source
+      liftIO [jsu|$r=new ol.layer.Tile({source: `s});|]
     Group{_layers} -> do
       r <- liftIO [jsu|$r=new ol.layer.Group({});|]
-      dynInitializeWith (mapM mkLayer) _layers $ \newLayers -> liftIO $ do
-        ls <- toJSVal newLayers
-        [jsu_|h$updateGroupLayers(`r, `ls);|]
+      dynInitializeWith (mapM mkLayer . M.toAscList) _layers $
+        \newLayers -> liftIO $ do
+          ls <- toJSVal newLayers
+          [jsu_|h$updateGroupLayers(`r, `ls);|]
       return r
-  liftIO $ do
-    hash <- liftM hashStableName (makeStableName l)
-    [jsu_|`r["h$hash"]=`hash;|]
-  wrapDynObservableProp "opacity" r (l^.opacity)
-  wrapDynObservableProp "visible" r (l^.visible)
-  wrapDynObservableProp "zIndex" r (l^.zIndex)
-  wrapDynObservableProp "extent" r (l^.extent)
-  wrapDynObservableProp "minResolution" r (l^.minResolution)
-  wrapDynObservableProp "maxResolution" r (l^.maxResolution)
+  setProp "opacity" r (l^.opacity)
+  setProp "visible" r (l^.visible)
+  setProp "zIndex" r (l^.zIndex)
+  setProp "extent" r (l^.extent)
+  setProp "minResolution" r (l^.minResolution)
+  setProp "maxResolution" r (l^.maxResolution)
+  liftIO $ [jsu_|`r['h$key']=`key|]
   return r
+
+setProp :: (MonadIO m, PToJSVal a) => String -> JSVal -> a -> m ()
+setProp n v a = liftIO [jsu_|if(`a!==null){`v['set'](`n, `a)};|]

@@ -1,4 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE JavaScriptFFI #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -26,6 +27,8 @@ import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types (JSVal, JSString, jsval)
 import GHCJS.DOM.Types
 import GHCJS.Foreign.QQ
+import System.Mem.StableName
+import Unsafe.Coerce (unsafeCoerce)
 
 
 data MapQuestLayer = OpenStreetMap | Satellite | Hybrid deriving (Show, Read)
@@ -37,8 +40,8 @@ instance PToJSVal MapQuestLayer where
 
 data Source t
   = ImageWMS {
-      _url    :: Dynamic t String
-    , _params :: Dynamic t (M.Map String String)
+      _url    :: String
+    , _params :: M.Map String String
     }
   | MapQuest {
       _layer  :: MapQuestLayer
@@ -47,19 +50,19 @@ makeLenses ''Source
 
 imageWMS
   :: Reflex t
-  => Dynamic t String -> Dynamic t (M.Map String String) -> Source t
+  => String -> (M.Map String String) -> Source t
 imageWMS = ImageWMS
 
 mapQuest :: Reflex t => MapQuestLayer -> Source t
 mapQuest = MapQuest
 
 mkSource :: MonadWidget t m => Source t -> m JSVal
-mkSource s =
-  case s of
+mkSource s = liftIO $ do
+  r <- case s of
     ImageWMS{_url, _params} -> do
-      r <- liftIO [jsu|$r=new ol.source.ImageWMS({params:{}});|]
-      dynInitialize _url $ \newUrl -> liftIO $ [jsu_|`r.setUrl(`newUrl);|]
-      dynInitialize _params $ \ps -> liftIO $ [jsu_|`r.updateParams(`ps);|]
-      return r
+      [jsu|$r=new ol.source.ImageWMS({url:`_url, params:`_params});|]
     MapQuest{_layer} ->
-      liftIO [jsu|$r=new ol.source.MapQuest({layer:`_layer});|]
+      [jsu|$r=new ol.source.MapQuest({layer:`_layer});|]
+  liftM unsafeCoerce (makeStableName s) >>= \(h::JSVal) ->
+    [jsu_|`r['h$hash']=`h;|]
+  return r

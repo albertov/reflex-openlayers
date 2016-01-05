@@ -82,9 +82,9 @@ type Rotation    = Double
 
 data View
   = View {
-      _viewCenter     :: Coordinates
-    , _viewResolution :: Double
-    , _viewRotation   :: Rotation
+      _viewCenter     :: !Coordinates
+    , _viewResolution :: !Double
+    , _viewRotation   :: !Rotation
     } deriving (Eq, Ord, Show)
 
 instance PFromJSVal View where
@@ -109,7 +109,7 @@ data Map t
   = Map {
       _map_attributes :: Dynamic t (M.Map String String)
     , _mapView        :: Dynamic t View
-    , _mapLayers      :: Dynamic t [Layer t]
+    , _mapLayers      :: Dynamic t (LayerSet t)
     }
 makeFields ''Map
 
@@ -138,7 +138,7 @@ olMap :: MonadWidget t m => Map t -> m (MapWidget t)
 olMap cfg = do
   el <- liftM castToHTMLDivElement (buildEmptyElement "div" (cfg^.attributes))
   let target = unElement (toElement el)
-  g <- mkLayer (group (cfg^.layers))
+  g <- mkLayer (0, (group (cfg^.layers)))
   v <- mkView def
   m :: JSVal <- liftIO $ [jsu|$r = new ol.Map({layers:`g, view:`v});|]
   (eUpdating, tUpdating) <- newEventWithTriggerRef
