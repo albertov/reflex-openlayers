@@ -1,97 +1,118 @@
 {-# LANGUAGE RecursiveDo #-}
 module Main (main) where
 
-import Control.Arrow
-import Control.Monad
-import Control.Lens ((^.))
-import Data.Default (def)
-import Data.Maybe (fromMaybe)
 import Reflex.Dom
 import Reflex.Dom.Contrib.Widgets.Common
-import qualified Reflex.OpenLayers as OL
-import Reflex.OpenLayers.Source as OL
-import Reflex.OpenLayers.Layer as OL
+import Reflex.OpenLayers
+
+import Control.Monad
+import Control.Lens ((^.), over, views)
+import qualified Data.Map as M
+import Data.List (foldl')
 import Safe (readMay)
 
 main :: IO ()
-main = mainWidgetWithCss OL.css $ mdo
-  dynSrc <- holdDyn (OL.mapQuest (Satellite)) never
-  dynOpacity <- mapDyn (fromMaybe 0 . readMay) (value opacityInput)
-  let initialLayers = [
-          OL.tile dynSrc
-        , (OL.image $ constDyn $
-            OL.imageWMS
-              (constDyn "http://demo.boundlessgeo.com/geoserver/wms")
-              (constDyn ("LAYERS" =: "topp:states")))
-          & OL.opacity .~ dynOpacity
-          & OL.visible .~ value layerBox
-        ]
-  dynLayers <- holdDyn initialLayers $
-                 tag (fmap reverse (current dynLayers)) reverseButton
-  let initialView = def
-        & OL.zoom   .~ OL.This 4
-        & OL.center .~ (-10997148, 4569099)
-  mapWidget <- OL.map $ def
-    & OL.view  .~ dynView
-    -- & OL.setView  .~ updated dynView
-    & OL.layers  .~ dynLayers
+main = mainWidgetWithCss olCss $ mdo
+  mapWidget <- olMap $ def
+    & view  .~ dynView
+    & layers  .~ dynLayers
 
-  (reverseButton,layerBox, opacityInput) <- dtdd "layers" $ do
-    l <- checkbox True def
-    o <- textInput $ def
-      & textInputConfig_initialValue .~ "1"
-      & attributes .~ constDyn ("type" =: "number")
-    b <- button "reverse"
-    return (b,l, o)
+  dynLayers <- dtdd "layers" $ mdo
+    let asMap = M.fromList $ zip [0..] initialLayers
+    dynLayerMap <- foldDyn ($) asMap $ switch $ current itemChangeEvent
+    events <- el "ul" $ do
+      listWithKey dynLayerMap layerWidget
+    let combineItemChanges
+          = fmap ( foldl' (.) id)
+          . mergeList
+          . map (\(k, v) -> fmap (flip M.update k) v)
+          . M.toList
+    itemChangeEvent <- mapDyn combineItemChanges events
+    mapDyn M.elems dynLayerMap
 
-  dynView <- foldDyn ($) initialView $ mergeWith(.) [
-          fmap const (mapWidget^.OL.viewChanged)
-        , rotationChange
-        , zoomChange
-        ]
-  dtdd "view" $ dynText =<< mapDyn show dynView
+  dynView <- dtdd "view" $ mdo
+    dynView <- foldDyn ($) initialView $ mergeWith(.) [
+            fmap const (mapWidget^.viewChanged)
+          , rotationChange
+          , resolutionChange
+          , centerChange
+          ]
+    rotationChange <- dtdd "rotation" $ do
+      curView <- sample (current dynView)
+      input <- htmlTextInput "number" $ def
+        & widgetConfig_initialValue .~ show (curView^.rotation)
+        & attributes .~ constDyn ("step" =: "0.05")
+        & setValue   .~
+            fmap (show . (^.rotation)) (mapWidget^.viewChanged)
+      let eVal = fmapMaybe readMay (change input)
+      return $ fmap (rotation .~) eVal
 
+    resolutionChange <- dtdd "resolution" $ do
+      curView <- sample (current dynView)
+      input <- htmlTextInput "number" $ def
+        & widgetConfig_initialValue .~ show (curView^.resolution)
+        & attributes .~ constDyn ("step" =: "1000")
+        & setValue   .~
+            fmap (show . (^.resolution)) (mapWidget^.viewChanged)
+      let eVal = fmapMaybe readMay (change input)
+      return $ fmap (resolution .~) eVal
 
-
-  rotationChange <- dtdd "rotation" $ do
-    curView <- sample (current dynView)
-    input <- htmlTextInput "number" $ def
-      & widgetConfig_initialValue .~ show (curView^.OL.rotation)
-      & setValue   .~ fmap (show . (^.OL.rotation))  (mapWidget^.OL.viewChanged)
-    let eVal = fmapMaybe readMay (updated (value input))
-    return $ fmap (\v -> OL.rotation .~ v) eVal
-
-  zoomChange <- dtdd "zoom" $ do
-    curView <- sample (current dynView)
-    input <- textInput $ def
-      & textInputConfig_initialValue .~ show (curView^.OL.zoom)
-      & setValue   .~ fmap (show . (^.OL.zoom))  (mapWidget^.OL.viewChanged)
-      & attributes .~ constDyn ("type" =: "number")
-    let eVal = fmapMaybe readMay (updated (value input))
-    return $ fmap (\v -> OL.zoom .~ v) eVal
-
-  {-
-
-  eCenter <- dtdd "center" $ do
-    let mover = do
-          mResolution <- current (mapWidget^.OL.zoom)
-          mCenter <- current (mapWidget^.OL.center)
-          return $ do
-            delta <- liftM (*10) mResolution
-            (x,y) <- mCenter
-            return $ \dir -> case dir of
-                               North -> (x        , y + delta)
-                               South -> (x        , y - delta)
-                               East  -> (x + delta, y        )
-                               West  -> (x - delta, y        )
-    north <- liftM (fmap (const North)) (button "north")
-    south <- liftM (fmap (const South)) (button "south")
-    east <- liftM (fmap (const East)) (button "east")
-    west <- liftM (fmap (const West)) (button "west")
-    display (mapWidget^.OL.center)
-    return $ attachWithMaybe (\mFun dir -> fmap ($dir) mFun) mover
-              $ leftmost [north, south, east, west]
- -}
+    centerChange <- dtdd "center" $ mdo
+      let showCenter c = show (c^.x) ++ ", " ++ show (c^.y)
+      dynText =<< mapDyn (views center showCenter) dynView
+      el "br" blank
+      let mover = do
+            curView <- current dynView
+            pixels <- current (value input)
+            let d = (curView^.resolution) * (maybe 0 fromIntegral pixels)
+            return $ \dir ->
+              case dir of
+                North -> over (center . y) (+d)
+                South -> over (center . y) (subtract d)
+                East  -> over (center . x) (+d)
+                West  -> over (center . x) (subtract d)
+      north <- liftM (fmap (const North)) (button "north")
+      south <- liftM (fmap (const South)) (button "south")
+      east <- liftM (fmap (const East)) (button "east")
+      west <- liftM (fmap (const West)) (button "west")
+      input <- intWidget $ def & widgetConfig_initialValue .~ Just 10
+      return $ attachWith ($) mover $ leftmost [north, south, east, west]
+    return dynView
   return ()
+
+initialLayers =
+  [ tile (constDyn (mapQuest Satellite))
+  , image $ constDyn $
+      imageWMS
+        (constDyn "http://demo.boundlessgeo.com/geoserver/wms")
+        (constDyn ("LAYERS" =: "topp:states"))
+  ]
+
+initialView = def & center .~ Coordinates (-10997148) 4569099
+
+layerWidget
+  :: MonadWidget t m
+  => Int
+  -> Dynamic t (Layer t)
+  -> m (Event t (Layer t -> Maybe (Layer t)))
+layerWidget ix layer = el "li" $ do
+
+  dynVisible <- liftM joinDyn $ mapDyn (^.visible) layer
+  eVisible <- checkboxView (constDyn mempty) dynVisible
+
+  dynOpacity <- liftM joinDyn $ mapDyn (^.opacity) layer
+  curOpacity <- sample (current dynOpacity)
+  opacityInput <- htmlTextInput "number" $ def
+    & widgetConfig_initialValue .~ show curOpacity
+    & attributes .~ constDyn ("step" =: "0.05")
+  let eOpacity = fmapMaybe readMay (change opacityInput)
+
+  eDelete <- button "delete"
+
+  return $ mergeWith (>=>) [
+      fmap (\v l -> Just (l & visible .~ constDyn v)) eVisible
+    , fmap (\v l -> Just (l & opacity .~ constDyn v)) eOpacity
+    , fmap (\_ _ -> Nothing) eDelete
+    ]
 
 data Direction = North | South | East | West

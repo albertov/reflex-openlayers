@@ -14,21 +14,26 @@ module Reflex.OpenLayers (
     Map
   , MapWidget
   , View
+  , Coordinates (..)
   , HasAttributes(..)
+  , HasX(..)
+  , HasY(..)
   , HasView (..)
-  , HasZoom (..)
+  , HasResolution (..)
   , HasCenter (..)
   , HasRotation (..)
   , HasLayers (..)
   , HasViewChanged (..)
-  , ZoomResolution
-  , These (..)
-  , map
-  , css
+  , olMap
+  , olCss
+
+  , module Reflex.OpenLayers.Layer
+  , module Reflex.OpenLayers.Source
 ) where
 
 
 import Reflex.OpenLayers.Layer
+import Reflex.OpenLayers.Source
 import Reflex.OpenLayers.Util
 import Reflex.OpenLayers.Event
 
@@ -43,7 +48,6 @@ import Data.ByteString (ByteString)
 import Data.Default (Default)
 import Data.Dependent.Sum (DSum (..))
 import Data.FileEmbed (embedFile)
-import Data.These
 import qualified Data.Map as M
 import Data.Monoid
 
@@ -61,37 +65,40 @@ import Prelude hiding (map)
 -- View
 --
 
-type Coordinates = (Double, Double)
+data Coordinates
+  = Coordinates {
+      coordinatesX :: !Double
+    , coordinatesY :: !Double
+    } deriving (Eq, Ord, Show)
+makeFields ''Coordinates
 
 instance PToJSVal Coordinates where
-  pToJSVal (x,y) = [jsu'|[`x, `y]|]
+  pToJSVal (Coordinates x y) = [jsu'|[`x, `y]|]
 
 instance PFromJSVal Coordinates where
-  pFromJSVal l = ([js'|`l[0]|], [js'|`l[1]|])
+  pFromJSVal l = Coordinates [js'|`l[0]|] [js'|`l[1]|]
 
-type ZoomResolution = These Int Double
 type Rotation    = Double
 
 data View
   = View {
-      _viewCenter   :: Coordinates
-    , _viewZoom     :: ZoomResolution
-    , _viewRotation :: Rotation
+      _viewCenter     :: Coordinates
+    , _viewResolution :: Double
+    , _viewRotation   :: Rotation
     } deriving (Eq, Ord, Show)
 
 instance PFromJSVal View where
   pFromJSVal v = View [js'|$r=`v.getCenter();|]
-                      (These [js'|$r=`v.getZoom();|]
-                             [js'|$r=`v.getResolution();|])
+                      [js'|$r=`v.getResolution();|]
                       [js'|$r=`v.getRotation();|]
 
 makeFields ''View
 
 instance Default View where
   def = View {
-      _viewCenter   = (0,0)
-    , _viewZoom     = This 0
-    , _viewRotation = 0
+      _viewCenter     = Coordinates 0 0
+    , _viewResolution = 100000
+    , _viewRotation   = 0
     }
 
 --
@@ -127,8 +134,8 @@ data MapWidget t
     }
 makeFields ''MapWidget
 
-map :: MonadWidget t m => Map t -> m (MapWidget t)
-map cfg = do
+olMap :: MonadWidget t m => Map t -> m (MapWidget t)
+olMap cfg = do
   el <- liftM castToHTMLDivElement (buildEmptyElement "div" (cfg^.attributes))
   let target = unElement (toElement el)
   g <- mkLayer (group (cfg^.layers))
@@ -154,26 +161,16 @@ map cfg = do
   return (MapWidget (gate (fmap not isUpdating) eViewChanged))
 
 mkView :: MonadIO m => View -> m JSVal
-mkView View{ _viewCenter   = c
-           , _viewRotation = r
-           , _viewZoom     = This z
-           } =
-  liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, zoom:`z});|]
-mkView View{ _viewCenter   = c
-           , _viewRotation = r
-           , _viewZoom     = That rs
+mkView View{ _viewCenter     = c
+           , _viewRotation   = r
+           , _viewResolution = rs
            } =
   liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, resolution:`rs});|]
-mkView View{ _viewCenter   = c
-           , _viewRotation = r
-           , _viewZoom     = These z _
-           } =
-  liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, zoom:`z});|]
 
 
 -- CSS
 --
 
 
-css :: ByteString
-css = $(embedFile "static/ol.css")
+olCss :: ByteString
+olCss = $(embedFile "static/ol.css")

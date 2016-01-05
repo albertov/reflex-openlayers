@@ -8,7 +8,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Reflex.OpenLayers.Layer (
-    Layer
+    Layer (..)
   , Extent (..)
   , Opacity
   , image
@@ -141,4 +141,10 @@ mkLayer l = do
   liftIO $ do
     hash <- liftM hashStableName (makeStableName l)
     [jsu_|`r["h$hash"]=`hash;|]
+  wrapDynObservableProp "opacity" r (l^.opacity)
+  wrapDynObservableProp "visible" r (l^.visible)
+  wrapDynObservableProp "zIndex" r (l^.zIndex)
+  wrapDynObservableProp "extent" r (l^.extent)
+  wrapDynObservableProp "minResolution" r (l^.minResolution)
+  wrapDynObservableProp "maxResolution" r (l^.maxResolution)
   return r

@@ -3,6 +3,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE JavaScriptFFI #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Reflex.OpenLayers.Util (
@@ -12,6 +13,7 @@ module Reflex.OpenLayers.Util (
   , initOLProp
   , initOLPropWith
   , wrapObservableProp
+  , wrapDynObservableProp
   , dynInitialize
   , dynInitializeWith
   ) where
@@ -28,7 +30,8 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Dependent.Sum (DSum (..))
 import qualified Data.Map as M
 import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
-import GHCJS.Marshal.Pure (PToJSVal(pToJSVal))
+import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
+import GHCJS.Foreign.QQ
 import GHCJS.Types
 import GHCJS.DOM.Types (toJSString)
 import qualified JavaScript.Object as O
@@ -88,6 +91,16 @@ wrapObservableProp name wrap obj initialValue eSet = do
       postGui $ runWithActions [trig :=> val]
     return (liftIO unsubscribe)
   holdDyn (wrap initialValue) ev
+
+wrapDynObservableProp
+  :: (PToJSVal a, MonadWidget t m)
+  => String
+  -> JSVal
+  -> Dynamic t a
+  -> m ()
+wrapDynObservableProp name obj val =
+  dynInitialize val $ \newVal ->
+    liftIO [jsu_|if(`newVal!==null){`obj.set(`name, `newVal)};|]
 
 initOLProp
   :: (ToJSVal a, MonadWidget t m)

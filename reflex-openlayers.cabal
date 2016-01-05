@@ -26,8 +26,7 @@ library
     file-embed,
     lens,
     dependent-sum,
-    bytestring,
-    these
+    bytestring
   exposed-modules:
       Reflex.OpenLayers
     , Reflex.OpenLayers.Source
@@ -52,6 +51,7 @@ executable reflex-openlayers-demo
     reflex-dom-contrib,
     data-default,
     reflex-openlayers,
+    containers,
     safe
   default-language: Haskell2010
   ghc-options: -threaded -Wall -fwarn-tabs -funbox-strict-fields

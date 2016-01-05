@@ -6,7 +6,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Reflex.OpenLayers.Source (
-    Source
+    Source (..)
   , MapQuestLayer (..)
   , imageWMS
   , mapQuest
