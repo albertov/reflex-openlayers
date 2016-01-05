@@ -15,7 +15,7 @@ module Reflex.OpenLayers.Source (
 
 import Reflex
 import Reflex.Dom
-import Reflex.OpenLayers.Util ()
+import Reflex.OpenLayers.Util (dynInitialize)
 
 import Data.Typeable (Typeable, cast)
 import qualified Data.Map as M
@@ -58,12 +58,8 @@ mkSource s =
   case s of
     ImageWMS{_url, _params} -> do
       r <- liftIO [jsu|$r=new ol.source.ImageWMS({params:{}});|]
-      eNewUrl <- dyn =<< mapDyn return _url
-      addVoidAction $ ffor eNewUrl $ \newUrl ->
-        liftIO $ [jsu_|`r.setUrl(`newUrl);|]
-      eNewParams <- dyn =<< mapDyn return _params
-      addVoidAction $ ffor eNewParams $ \newParams ->
-        liftIO $ [jsu_|`r.updateParams(`newParams);|]
+      dynInitialize _url $ \newUrl -> liftIO $ [jsu_|`r.setUrl(`newUrl);|]
+      dynInitialize _params $ \ps -> liftIO $ [jsu_|`r.updateParams(`ps);|]
       return r
     MapQuest{_layer} ->
       liftIO [jsu|$r=new ol.source.MapQuest({layer:`_layer});|]

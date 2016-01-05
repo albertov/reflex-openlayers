@@ -3,6 +3,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE JavaScriptFFI #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Reflex.OpenLayers.Util (
     olSetter
@@ -11,8 +12,8 @@ module Reflex.OpenLayers.Util (
   , initOLProp
   , initOLPropWith
   , wrapObservableProp
-  , declareProperties
-  , hasProperties
+  , dynInitialize
+  , dynInitializeWith
   ) where
 
 import Reflex.OpenLayers.Event
@@ -30,7 +31,6 @@ import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal))
 import GHCJS.Types
 import GHCJS.DOM.Types (toJSString)
-import Language.Haskell.TH
 import qualified JavaScript.Object as O
 import Data.Char
 import System.IO.Unsafe (unsafePerformIO)
@@ -83,7 +83,7 @@ wrapObservableProp name wrap obj initialValue eSet = do
   runWithActions <- askRunWithActions
   -- subscribe to change event
   ev <- newEventWithTrigger $ \trig -> do
-    unsubscribe <- liftIO $ on_ ("change:"++name) obj $ \_ -> do
+    unsubscribe <- liftIO $ on_ ("change:"++name) obj $ \(_::JSVal) -> do
       val <- get
       postGui $ runWithActions [trig :=> val]
     return (liftIO unsubscribe)
@@ -121,49 +121,12 @@ foreign import javascript unsafe "$3['set']($1,$4,$2)"
 foreign import javascript unsafe "$2['get']($1)"
   googGet :: JSString -> JSVal -> IO JSVal
 
-declareProperty :: String -> Q Dec
-declareProperty name = do
-  o <- newName "o"
-  a <- newName "a"
-  return $
-    ClassD [] clsName [PlainTV o,PlainTV a] [FunDep [o] [a]]
-      [SigD (mkName name) (AppT (AppT (ConT ''Lens') (VarT o)) (VarT a))]
-  where
-    clsName = mkName ("Has" ++ capitalize name)
+dynInitializeWith
+  :: MonadWidget t m
+  => (a -> m b) -> Dynamic t a -> (b -> WidgetHost m ()) -> m ()
+dynInitializeWith build v f = addVoidAction . fmap f =<< dyn =<< mapDyn build v
 
-declareProperties :: [String] -> Q [Dec]
-declareProperties = mapM declareProperty
-
-hasProperty :: Name -> String -> Q Dec
-hasProperty name propName = do
-  TyConI (DataD _ _ tyVars [RecC _ fields] []) <- reify name
-  o <- newName "o"
-  v <- newName "v"
-  let (fName,_,fType) = findField fields
-      setter = LamE [VarP o,VarP v] (RecUpdE (VarE o) [(fName,VarE v)])
-      theLens = VarE 'lens `AppE` (VarE fName) `AppE` setter
-      gTyName (KindedTV n _) = n
-      gTyName (PlainTV n) = n
-      tyNames = map gTyName tyVars
-  return $
-    InstanceD
-      []
-      (ConT clsName
-        `AppT` (foldl AppT (ConT name) (map VarT tyNames))
-        `AppT` fType)
-      [ValD (VarP (mkName propName)) (NormalB theLens) []]
-  where
-    clsName = mkName ("Has" ++ capitalize propName)
-    findField [] = error $ "hasProperty: " ++
-                   "could not find field " ++ propName ++ " on " ++ show name
-    findField (x@(n,_,_):xs)
-      | take (length propName) (reverse (nameBase n)) == reverse propName = x
-      | otherwise = findField xs
-
-hasProperties :: Name -> [String] -> Q [Dec]
-hasProperties name = mapM (hasProperty name)
-
-
-capitalize :: String -> String
-capitalize [] = []
-capitalize (x:xs) = toUpper x : xs
+dynInitialize
+  :: MonadWidget t m
+  => Dynamic t a -> (a -> WidgetHost m ()) -> m ()
+dynInitialize = dynInitializeWith return

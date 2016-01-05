@@ -7,6 +7,7 @@ import Control.Lens ((^.))
 import Data.Default (def)
 import Data.Maybe (fromMaybe)
 import Reflex.Dom
+import Reflex.Dom.Contrib.Widgets.Common
 import qualified Reflex.OpenLayers as OL
 import Reflex.OpenLayers.Source as OL
 import Reflex.OpenLayers.Layer as OL
@@ -27,35 +28,49 @@ main = mainWidgetWithCss OL.css $ mdo
         ]
   dynLayers <- holdDyn initialLayers $
                  tag (fmap reverse (current dynLayers)) reverseButton
-  eMap <- OL.map $ def
-    & OL.view  .~ constDyn (def
-      & OL.zoom   .~ OL.Zoom 4
-      & OL.center .~ (-10997148, 4569099)
-      )
+  let initialView = def
+        & OL.zoom   .~ OL.This 4
+        & OL.center .~ (-10997148, 4569099)
+  mapWidget <- OL.map $ def
+    & OL.view  .~ dynView
+    -- & OL.setView  .~ updated dynView
     & OL.layers  .~ dynLayers
-  dynText =<< holdDyn "" (fmap (const "foo") eMap)
+
+  (reverseButton,layerBox, opacityInput) <- dtdd "layers" $ do
+    l <- checkbox True def
+    o <- textInput $ def
+      & textInputConfig_initialValue .~ "1"
+      & attributes .~ constDyn ("type" =: "number")
+    b <- button "reverse"
+    return (b,l, o)
+
+  dynView <- foldDyn ($) initialView $ mergeWith(.) [
+          fmap const (mapWidget^.OL.viewChanged)
+        , rotationChange
+        , zoomChange
+        ]
+  dtdd "view" $ dynText =<< mapDyn show dynView
 
 
-{-
-  rotationInput <- dtdd "rotation" $ do
-    let d = mapWidget^.OL.rotation
-    cur <- sample (current d)
+
+  rotationChange <- dtdd "rotation" $ do
+    curView <- sample (current dynView)
+    input <- htmlTextInput "number" $ def
+      & widgetConfig_initialValue .~ show (curView^.OL.rotation)
+      & setValue   .~ fmap (show . (^.OL.rotation))  (mapWidget^.OL.viewChanged)
+    let eVal = fmapMaybe readMay (updated (value input))
+    return $ fmap (\v -> OL.rotation .~ v) eVal
+
+  zoomChange <- dtdd "zoom" $ do
+    curView <- sample (current dynView)
     input <- textInput $ def
-      & textInputConfig_initialValue .~ show cur
-      & setValue   .~ fmap show  (updated d)
+      & textInputConfig_initialValue .~ show (curView^.OL.zoom)
+      & setValue   .~ fmap (show . (^.OL.zoom))  (mapWidget^.OL.viewChanged)
       & attributes .~ constDyn ("type" =: "number")
-    display d
-    return input
+    let eVal = fmapMaybe readMay (updated (value input))
+    return $ fmap (\v -> OL.zoom .~ v) eVal
 
-  zoomInput <- dtdd "zoom" $ do
-    let dynResolution = mapWidget^.OL.zoom
-    curResolution <- sample (current dynResolution)
-    zoomInput <- textInput $ def
-      & textInputConfig_initialValue .~ show (fromMaybe 0 curResolution)
-      & setValue .~ fmap (show . fromMaybe (-1))  (updated dynResolution)
-      & attributes .~ constDyn ("type" =: "number")
-    display dynResolution
-    return zoomInput
+  {-
 
   eCenter <- dtdd "center" $ do
     let mover = do
@@ -77,13 +92,6 @@ main = mainWidgetWithCss OL.css $ mdo
     return $ attachWithMaybe (\mFun dir -> fmap ($dir) mFun) mover
               $ leftmost [north, south, east, west]
  -}
-  (reverseButton,layerBox, opacityInput) <- dtdd "layers" $ do
-    l <- checkbox True def
-    o <- textInput $ def
-      & textInputConfig_initialValue .~ "1"
-      & attributes .~ constDyn ("type" =: "number")
-    b <- button "reverse"
-    return (b,l, o)
   return ()
 
 data Direction = North | South | East | West

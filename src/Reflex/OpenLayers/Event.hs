@@ -22,8 +22,8 @@ data Event = Event
 instance FromJSVal Event where
   fromJSVal _ = return (Just Event)
 
-on :: (ToJSVal a, ToJSVal b)
-   => String -> a -> (Event -> IO b) -> IO (IO ())
+on :: (ToJSVal a, ToJSVal b, FromJSVal e)
+   => String -> a -> (e -> IO b) -> IO (IO ())
 on eventName ob cb = do
   jsOb <- toJSVal ob
   jsCb <- syncCallback1' cb'
@@ -33,7 +33,8 @@ on eventName ob cb = do
     cb' = (fromJSVal >=> maybe eErr cb >=> toJSVal)
     eErr = fail "Reflex.OpenLayers.Event.on: could not convert event"
 
-on_ :: ToJSVal a => String -> a -> (Event -> IO ()) -> IO (IO ())
+on_ :: (FromJSVal e, ToJSVal a)
+    => String -> a -> (e -> IO ()) -> IO (IO ())
 on_ eventName ob cb = do
   jsOb <- toJSVal ob
   jsCb <- syncCallback1 ContinueAsync cb'

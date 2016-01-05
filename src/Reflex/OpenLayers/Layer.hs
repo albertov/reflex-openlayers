@@ -43,7 +43,6 @@ import GHCJS.Types
 import GHCJS.Foreign (isNull)
 import GHCJS.Foreign.QQ
 import GHCJS.DOM.Types (toJSString)
-import Language.Haskell.TH (reify)
 import System.Mem.StableName
 
 type Opacity = Double
@@ -61,44 +60,29 @@ instance PFromJSVal Extent where
   pFromJSVal l = Extent [js'|`l[0]|] [js'|`l[1]|] [js'|`l[2]|] [js'|`l[3]|]
 
 
-
 --
 -- Layer
 --
-declareProperties [
-    "opacity"
-  , "visible"
-  , "extent"
-  , "zIndex"
-  , "minResolution"
-  , "maxResolution"
-  ]
 
 data LayerBase t
   = LayerBase {
-      _layerBase_opacity       :: Dynamic t Opacity
-    , _layerBase_visible       :: Dynamic t Bool
-    , _layerBase_zIndex        :: Dynamic t Int
-    , _layerBase_extent        :: Dynamic t (Maybe Extent)
-    , _layerBase_minResolution :: Dynamic t (Maybe Double)
-    , _layerBase_maxResolution :: Dynamic t (Maybe Double)
+      _layerBaseOpacity       :: Dynamic t Opacity
+    , _layerBaseVisible       :: Dynamic t Bool
+    , _layerBaseZIndex        :: Dynamic t Int
+    , _layerBaseExtent        :: Dynamic t (Maybe Extent)
+    , _layerBaseMinResolution :: Dynamic t (Maybe Double)
+    , _layerBaseMaxResolution :: Dynamic t (Maybe Double)
     }
-hasProperties ''LayerBase [
-    "opacity"
-  , "visible"
-  , "zIndex"
-  , "extent"
-  , "minResolution"
-  , "maxResolution"
-  ]
+makeFields ''LayerBase
+
 instance Reflex t => Default (LayerBase t) where
   def = LayerBase {
-       _layerBase_opacity          = constDyn 1
-     , _layerBase_visible          = constDyn True
-     , _layerBase_zIndex           = constDyn 0
-     , _layerBase_extent           = constDyn Nothing
-     , _layerBase_minResolution    = constDyn Nothing
-     , _layerBase_maxResolution    = constDyn Nothing
+       _layerBaseOpacity          = constDyn 1
+     , _layerBaseVisible          = constDyn True
+     , _layerBaseZIndex           = constDyn 0
+     , _layerBaseExtent           = constDyn Nothing
+     , _layerBaseMinResolution    = constDyn Nothing
+     , _layerBaseMaxResolution    = constDyn Nothing
      }
 
 data Layer t
@@ -140,20 +124,17 @@ mkLayer l = do
   r <- case l of
     Image{_source} -> do
       r <- liftIO [jsu|$r=new ol.layer.Image({});|]
-      eNewSource <- dyn =<< mapDyn mkSource _source
-      addVoidAction $ ffor eNewSource $ \newSource ->
+      dynInitializeWith mkSource _source $ \newSource ->
         liftIO $ [jsu_|`r.setSource(`newSource);|]
       return r
     Tile{_source} -> do
       r <- liftIO [jsu|$r=new ol.layer.Tile({});|]
-      eNewSource <- dyn =<< mapDyn mkSource _source
-      addVoidAction $ ffor eNewSource $ \newSource ->
+      dynInitializeWith mkSource _source $ \newSource ->
         liftIO $ [jsu_|`r.setSource(`newSource);|]
       return r
     Group{_layers} -> do
       r <- liftIO [jsu|$r=new ol.layer.Group({});|]
-      eNewLayers <- dyn =<< mapDyn (mapM mkLayer) _layers
-      addVoidAction $ ffor eNewLayers $ \newLayers -> liftIO $ do
+      dynInitializeWith (mapM mkLayer) _layers $ \newLayers -> liftIO $ do
         ls <- toJSVal newLayers
         [jsu_|h$updateGroupLayers(`r, `ls);|]
       return r

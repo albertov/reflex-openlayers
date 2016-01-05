@@ -12,6 +12,7 @@
 
 module Reflex.OpenLayers (
     Map
+  , MapWidget
   , View
   , HasAttributes(..)
   , HasView (..)
@@ -19,20 +20,30 @@ module Reflex.OpenLayers (
   , HasCenter (..)
   , HasRotation (..)
   , HasLayers (..)
-  , Zoom (..)
+  , HasViewChanged (..)
+  , ZoomResolution
+  , These (..)
   , map
   , css
 ) where
 
+
 import Reflex.OpenLayers.Layer
 import Reflex.OpenLayers.Util
+import Reflex.OpenLayers.Event
 
-import Control.Lens (lens, (^.))
-import Control.Monad (liftM, (>=>))
+import Reflex.Host.Class (newEventWithTrigger, newEventWithTriggerRef)
+import Reflex
+import Reflex.Dom
+
+import Control.Lens (lens, makeFields, (^.))
+import Control.Monad (liftM, when, (>=>))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.ByteString (ByteString)
 import Data.Default (Default)
+import Data.Dependent.Sum (DSum (..))
 import Data.FileEmbed (embedFile)
+import Data.These
 import qualified Data.Map as M
 import Data.Monoid
 
@@ -43,18 +54,8 @@ import GHCJS.Marshal (toJSVal)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types (JSVal)
 import GHCJS.Foreign.QQ
-import Reflex.Host.Class (newEventWithTrigger)
-import Reflex.Dom
 
 import Prelude hiding (map)
-
-declareProperties [
-    "view"
-  , "zoom"
-  , "center"
-  , "rotation"
-  , "layers"
-  ]
 
 --
 -- View
@@ -68,30 +69,29 @@ instance PToJSVal Coordinates where
 instance PFromJSVal Coordinates where
   pFromJSVal l = ([js'|`l[0]|], [js'|`l[1]|])
 
-data Zoom
-  = Resolution Double
-  | Zoom       Int
-  deriving (Show, Ord, Eq)
+type ZoomResolution = These Int Double
 type Rotation    = Double
 
 data View
   = View {
-      _view_center   :: Coordinates
-    , _view_zoom     :: Zoom
-    , _view_rotation :: Rotation
+      _viewCenter   :: Coordinates
+    , _viewZoom     :: ZoomResolution
+    , _viewRotation :: Rotation
     } deriving (Eq, Ord, Show)
 
-hasProperties ''View [
-    "zoom"
-  , "center"
-  , "rotation"
-  ]
+instance PFromJSVal View where
+  pFromJSVal v = View [js'|$r=`v.getCenter();|]
+                      (These [js'|$r=`v.getZoom();|]
+                             [js'|$r=`v.getResolution();|])
+                      [js'|$r=`v.getRotation();|]
+
+makeFields ''View
 
 instance Default View where
   def = View {
-      _view_center   = (0,0)
-    , _view_zoom     = Zoom 0
-    , _view_rotation = 0
+      _viewCenter   = (0,0)
+    , _viewZoom     = This 0
+    , _viewRotation = 0
     }
 
 --
@@ -101,13 +101,10 @@ instance Default View where
 data Map t
   = Map {
       _map_attributes :: Dynamic t (M.Map String String)
-    , _map_view       :: Dynamic t View
-    , _map_layers     :: Dynamic t [Layer t]
+    , _mapView        :: Dynamic t View
+    , _mapLayers      :: Dynamic t [Layer t]
     }
-hasProperties ''Map [
-    "view"
-  , "layers"
-  ]
+makeFields ''Map
 
 instance HasAttributes (Map t) where
   type Attrs (Map t) = Dynamic t (M.Map String String)
@@ -116,37 +113,62 @@ instance HasAttributes (Map t) where
 instance Reflex t => Default (Map t) where
   def = Map {
         _map_attributes  = constDyn mempty
-      , _map_view        = constDyn def
-      , _map_layers      = constDyn mempty
+      , _mapView         = constDyn def
+      , _mapLayers       = constDyn mempty
     }
 
 data MapEvent t
   = MapEvent {evMap :: JSVal}
 
-map :: MonadWidget t m => Map t -> m (Event t (MapEvent t))
+
+data MapWidget t
+  = MapWidget {
+      _mapWidgetViewChanged :: Event t View
+    }
+makeFields ''MapWidget
+
+map :: MonadWidget t m => Map t -> m (MapWidget t)
 map cfg = do
   el <- liftM castToHTMLDivElement (buildEmptyElement "div" (cfg^.attributes))
   let target = unElement (toElement el)
   g <- mkLayer (group (cfg^.layers))
-  m :: JSVal <- liftIO $ [jsu|$r = new ol.Map({layers:`g});|]
-  eNewView <- dyn =<< mapDyn mkView (cfg^.view)
-  addVoidAction $ ffor eNewView $ \newView ->
-    liftIO $ [jsu_|`m.setView(`newView);|]
+  v <- mkView def
+  m :: JSVal <- liftIO $ [jsu|$r = new ol.Map({layers:`g, view:`v});|]
+  (eUpdating, tUpdating) <- newEventWithTriggerRef
+  isUpdating <- hold False eUpdating
+  dynInitializeWith mkView (cfg^.view) $ \newView -> do
+    runFrameWithTriggerRef tUpdating True
+    liftIO $ [jsu_|h$updateView(`m, `newView);|]
+    runFrameWithTriggerRef tUpdating False
   getPostBuild >>=
     performEvent_ . fmap (const (liftIO ([js_|`m.setTarget(`target)|])))
-  newEventWithTrigger $ \_ -> return (return ())
+
+  postGui <- askPostGui
+  runWithActions <- askRunWithActions
+  eViewChanged <- newEventWithTrigger $ \trig -> do
+    unsubscribe <- liftIO $ on_ "propertychange" v $ \(_::JSVal) -> do
+      v' <- liftIO [jsu|$r=`m.getView()|]
+      postGui $ runWithActions [trig :=> v']
+    return (liftIO unsubscribe)
+
+  return (MapWidget (gate (fmap not isUpdating) eViewChanged))
 
 mkView :: MonadIO m => View -> m JSVal
-mkView View{ _view_center   = c
-           , _view_rotation = r
-           , _view_zoom     = Zoom z
+mkView View{ _viewCenter   = c
+           , _viewRotation = r
+           , _viewZoom     = This z
            } =
   liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, zoom:`z});|]
-mkView View{ _view_center   = c
-           , _view_rotation = r
-           , _view_zoom     = Resolution rs
+mkView View{ _viewCenter   = c
+           , _viewRotation = r
+           , _viewZoom     = That rs
            } =
   liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, resolution:`rs});|]
+mkView View{ _viewCenter   = c
+           , _viewRotation = r
+           , _viewZoom     = These z _
+           } =
+  liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, zoom:`z});|]
 
 
 -- CSS
