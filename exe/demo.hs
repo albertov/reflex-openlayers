@@ -1,12 +1,14 @@
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE NamedFieldPuns #-}
 module Main (main) where
 
 import Reflex.Dom
 import Reflex.Dom.Contrib.Widgets.Common
+import Reflex.Dom.Contrib.Widgets.BoundedList (mkHiding)
 import Reflex.OpenLayers
 
 import Control.Monad
-import Control.Lens ((^.), over, views)
+import Control.Lens ((^.), (^?), over, views)
 import qualified Data.Map as M
 import Data.List (foldl')
 import Safe (readMay)
@@ -19,8 +21,7 @@ main = mainWidgetWithCss olCss $ mdo
 
   dynLayers <- dtdd "layers" $ mdo
     dynLayerMap <- foldDyn ($) initialLayers $ switch $ current itemChangeEvent
-    events <- el "ul" $ do
-      listWithKey dynLayerMap layerWidget
+    events <- el "ul" $ list dynLayerMap layerWidget
     let combineItemChanges
           = fmap ( foldl' (.) id)
           . mergeList
@@ -91,27 +92,66 @@ initialView = def & center .~ Coordinates (-10997148) 4569099
 
 layerWidget
   :: MonadWidget t m
-  => Int
-  -> Dynamic t (Layer t)
+  => Dynamic t (Layer t)
   -> m (Event t (Layer t -> Maybe (Layer t)))
-layerWidget ix layer = el "li" $ do
+layerWidget layer = el "li" $ do
 
   dynVisible <- mapDyn (^.visible) layer
-  eVisible <- checkboxView (constDyn mempty) dynVisible
+  eVisible <- el "label" $ do
+    e <- checkboxView (constDyn mempty) dynVisible
+    text "Visible?"
+    return e
 
   dynOpacity <- mapDyn (^.opacity) layer
   curOpacity <- sample (current dynOpacity)
-  opacityInput <- htmlTextInput "number" $ def
-    & widgetConfig_initialValue .~ show curOpacity
-    & attributes .~ constDyn ("step" =: "0.05")
+  opacityInput <- el "label" $ do
+    text "Opacity"
+    htmlTextInput "number" $ def
+      & widgetConfig_initialValue .~ show curOpacity
+      & attributes .~ constDyn ("step" =: "0.05")
   let eOpacity = fmapMaybe readMay (change opacityInput)
+
+  dynZIndex <- mapDyn (^.zIndex) layer
+  curZIndex <- sample (current dynZIndex)
+  zIndexInput <- el "label" $ do
+    text "zIndex"
+    htmlTextInput "number" $ def
+      & widgetConfig_initialValue .~ show curZIndex
+  let eZindex = fmapMaybe readMay (change zIndexInput)
+
+  dynSource <- mapDyn (^?source) layer
+  eSource <- sourceWidget dynSource
+
 
   eDelete <- button "delete"
 
   return $ mergeWith (>=>) [
       fmap (\v l -> Just (l & visible .~ v)) eVisible
     , fmap (\v l -> Just (l & opacity .~ v)) eOpacity
+    , fmap (\v l -> Just (l & zIndex  .~ v)) eZindex
+    , fmap (\v l -> Just (l & source  .~ v)) eSource
     , fmap (\_ _ -> Nothing) eDelete
     ]
+
+sourceWidget
+  :: MonadWidget t m
+  => Dynamic t (Maybe (Source t))
+  -> m (Event t (Source t))
+sourceWidget val = do
+  curVal <- sample (current val)
+  case curVal of
+    Just (s@ImageWMS{_url}) -> do
+      el "label" $ do
+        text "URL"
+        input <- htmlTextInput "url" $ def
+          & widgetConfig_initialValue .~ _url
+        return $ fmap (\v -> s {_url=v}) (blurOrEnter input)
+    Just (s@MapQuest{_layer}) -> do
+      el "label" $ do
+        text "Layer"
+        input <- htmlDropdownStatic [minBound..maxBound] show id $ def
+          & widgetConfig_initialValue .~ _layer
+        return $ fmap (\v -> s {_layer=v}) (change input)
+    _ -> return never
 
 data Direction = North | South | East | West

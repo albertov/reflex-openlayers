@@ -27,7 +27,10 @@ module Reflex.OpenLayers.Layer (
   , HasMinResolution(..)
   , HasMaxResolution(..)
   , HasZIndex(..)
+  , HasSource(..)
+  , HasLayers(..)
 ) where
+
 
 import Reflex.OpenLayers.Source (Source, mkSource)
 import Reflex.OpenLayers.Util
@@ -98,29 +101,29 @@ pushLayer v m = case M.maxViewWithKey m of
 
 
 data Layer t
-  = Image { _layerBase :: LayerBase
-          , _source    :: Source t
+  = Image { _layerBase   :: LayerBase
+          , _layerSource :: Source t
           }
-  | Tile  { _layerBase :: LayerBase
-          , _source    :: Source t
+  | Tile  { _layerBase   :: LayerBase
+          , _layerSource :: Source t
           }
-  | Group { _layerBase :: LayerBase
-          , _layers    :: Dynamic t (LayerSet t)
+  | Group { _layerBase   :: LayerBase
+          , _layerLayers :: Dynamic t (LayerSet t)
           }
-makeLenses ''Layer
+makeFields ''Layer
 
 instance HasOpacity (Layer t) (Opacity) where
-  opacity = layerBase . opacity
+  opacity = base . opacity
 instance HasVisible (Layer t) (Bool) where
-  visible = layerBase . visible
+  visible = base . visible
 instance HasZIndex (Layer t) (Int) where
-  zIndex = layerBase . zIndex
+  zIndex = base . zIndex
 instance HasExtent (Layer t) ((Maybe Extent)) where
-  extent = layerBase . extent
+  extent = base . extent
 instance HasMinResolution (Layer t) ((Maybe Double)) where
-  minResolution = layerBase . minResolution
+  minResolution = base . minResolution
 instance HasMaxResolution (Layer t) ((Maybe Double)) where
-  maxResolution = layerBase . maxResolution
+  maxResolution = base . maxResolution
 
 image :: Reflex t => (Source t) -> Layer t
 image = Image def
@@ -134,15 +137,15 @@ group = Group def
 mkLayer :: MonadWidget t m => (Int, Layer t) -> m JSVal
 mkLayer (key,l) = do
   r <- case l of
-    Image{_source} -> do
-      s <- mkSource _source
+    Image{_layerSource} -> do
+      s <- mkSource _layerSource
       liftIO [jsu|$r=new ol.layer.Image({source:`s});|]
-    Tile{_source} -> do
-      s <- mkSource _source
+    Tile{_layerSource} -> do
+      s <- mkSource _layerSource
       liftIO [jsu|$r=new ol.layer.Tile({source: `s});|]
-    Group{_layers} -> do
+    Group{_layerLayers} -> do
       r <- liftIO [jsu|$r=new ol.layer.Group({});|]
-      dynInitializeWith (mapM mkLayer . M.toAscList) _layers $
+      dynInitializeWith (mapM mkLayer . M.toAscList) _layerLayers $
         \newLayers -> liftIO $ do
           ls <- toJSVal newLayers
           [jsu_|h$updateGroupLayers(`r, `ls);|]

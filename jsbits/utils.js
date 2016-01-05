@@ -33,9 +33,27 @@ function h$arraysEqual(a,b) {
   return a===b;
 }
 
-function h$compareHashes(a,b) {
-  return h$isDefined(a['h$hash']) && h$eqStableName(a['h$hash'], b['h$hash']);
-}
+var h$sourceComparators;
+
+function h$compareSources(a,b) {
+  if (!h$sourceComparators) {
+    h$sourceComparators = {};
+    h$sourceComparators[ol.source.ImageWMS] = function (a, b) {
+      return a.getUrl() === b.getUrl();
+      // TODO: compare params
+    }
+
+    h$sourceComparators[ol.source.MapQuest] = function (a, b) {
+      return a.getLayer() === b.getLayer();
+    }
+  };
+
+  if (a && b && a.constructor === b.constructor) {
+    return h$sourceComparators[a.constructor](a,b);
+  } else {
+    return a===b;
+  }
+};
 
 var h$layerProps = {
     "opacity"       : h$simplePropCompare
@@ -44,7 +62,7 @@ var h$layerProps = {
   , "minResolution" : h$simplePropCompare
   , "maxResolution" : h$simplePropCompare
   , "zIndex"        : h$simplePropCompare
-  , "source"        : h$compareHashes
+  , "source"        : h$compareSources
 };
 
 function h$updateLayer(old, v) {

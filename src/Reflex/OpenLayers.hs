@@ -41,25 +41,22 @@ import Reflex.Host.Class (newEventWithTrigger, newEventWithTriggerRef)
 import Reflex
 import Reflex.Dom
 
-import Control.Lens (lens, makeFields, (^.))
-import Control.Monad (liftM, when, (>=>))
+import Control.Lens (lens, makeFields, (^.), (^?))
+import Control.Monad (liftM)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.ByteString (ByteString)
 import Data.Default (Default)
 import Data.Dependent.Sum (DSum (..))
 import Data.FileEmbed (embedFile)
 import qualified Data.Map as M
-import Data.Monoid
+import Data.Maybe (fromJust)
 
 import GHCJS.DOM.HTMLDivElement (castToHTMLDivElement)
 import GHCJS.DOM.Element (toElement)
 import GHCJS.DOM.Types (unElement)
-import GHCJS.Marshal (toJSVal)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types (JSVal)
 import GHCJS.Foreign.QQ
-
-import Prelude hiding (map)
 
 --
 -- View
@@ -73,7 +70,7 @@ data Coordinates
 makeFields ''Coordinates
 
 instance PToJSVal Coordinates where
-  pToJSVal (Coordinates x y) = [jsu'|[`x, `y]|]
+  pToJSVal (Coordinates a b) = [jsu'|[`a, `b]|]
 
 instance PFromJSVal Coordinates where
   pFromJSVal l = Coordinates [js'|`l[0]|] [js'|`l[1]|]
@@ -124,10 +121,6 @@ instance Reflex t => Default (Map t) where
       , _mapLayers       = constDyn mempty
     }
 
-data MapEvent t
-  = MapEvent {evMap :: JSVal}
-
-
 data MapWidget t
   = MapWidget {
       _mapWidgetViewChanged :: Event t View
@@ -136,9 +129,9 @@ makeFields ''MapWidget
 
 olMap :: MonadWidget t m => Map t -> m (MapWidget t)
 olMap cfg = do
-  el <- liftM castToHTMLDivElement (buildEmptyElement "div" (cfg^.attributes))
-  let target = unElement (toElement el)
-  g <- mkLayer (0, (group (cfg^.layers)))
+  target <- liftM (unElement . toElement . castToHTMLDivElement) $
+              buildEmptyElement "div" (cfg^.attributes)
+  g <- mkLayer (0, (group (fromJust (cfg^?layers))))
   v <- mkView def
   m :: JSVal <- liftIO $ [jsu|$r = new ol.Map({layers:`g, view:`v});|]
   (eUpdating, tUpdating) <- newEventWithTriggerRef
@@ -166,6 +159,7 @@ mkView View{ _viewCenter     = c
            , _viewResolution = rs
            } =
   liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, resolution:`rs});|]
+
 
 
 -- CSS

@@ -18,6 +18,7 @@ import Reflex
 import Reflex.Dom
 import Reflex.OpenLayers.Util (dynInitialize)
 
+import Data.Default(Default)
 import Data.Typeable (Typeable, cast)
 import qualified Data.Map as M
 import Control.Monad (liftM, forM_)
@@ -27,16 +28,20 @@ import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types (JSVal, JSString, jsval)
 import GHCJS.DOM.Types
 import GHCJS.Foreign.QQ
-import System.Mem.StableName
-import Unsafe.Coerce (unsafeCoerce)
 
 
-data MapQuestLayer = OpenStreetMap | Satellite | Hybrid deriving (Show, Read)
+data MapQuestLayer
+  = OpenStreetMap
+  | Satellite
+  | Hybrid
+  deriving (Show, Read, Enum, Bounded, Eq)
 
 instance PToJSVal MapQuestLayer where
   pToJSVal OpenStreetMap = jsval ("osm" :: JSString)
   pToJSVal Satellite     = jsval ("sat" :: JSString)
   pToJSVal Hybrid        = jsval ("hyb" :: JSString)
+
+instance Default MapQuestLayer where def = Satellite
 
 data Source t
   = ImageWMS {
@@ -63,6 +68,4 @@ mkSource s = liftIO $ do
       [jsu|$r=new ol.source.ImageWMS({url:`_url, params:`_params});|]
     MapQuest{_layer} ->
       [jsu|$r=new ol.source.MapQuest({layer:`_layer});|]
-  liftM unsafeCoerce (makeStableName s) >>= \(h::JSVal) ->
-    [jsu_|`r['h$hash']=`h;|]
   return r

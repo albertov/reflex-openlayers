@@ -44,8 +44,8 @@ on_ eventName ob cb = do
     cb' = (fromJSVal >=> maybe eErr cb)
     eErr = fail "Reflex.OpenLayers.Event.on_: could not convert event"
 
-foreign import javascript unsafe "$1['on']($2, $3)"
+foreign import javascript unsafe "$1.on($2, $3)"
   js_on :: JSVal -> JSString -> Callback (JSVal -> IO a) -> IO JSVal
 
-foreign import javascript unsafe "$1['unByKey']($2)"
+foreign import javascript unsafe "$1.unByKey($2)"
   js_unByKey :: JSVal -> JSVal -> IO ()
