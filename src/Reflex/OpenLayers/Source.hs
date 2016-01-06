@@ -5,6 +5,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Reflex.OpenLayers.Source (
     Source (..)
@@ -16,12 +18,12 @@ module Reflex.OpenLayers.Source (
 
 import Reflex
 import Reflex.Dom
-import Reflex.OpenLayers.Util (dynInitialize)
+import Reflex.OpenLayers.Util
 
 import Data.Default(Default)
 import Data.Typeable (Typeable, cast)
 import qualified Data.Map as M
-import Control.Monad (liftM, forM_)
+import Control.Monad (liftM, forM_, when)
 import Control.Lens
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
@@ -41,6 +43,14 @@ instance PToJSVal MapQuestLayer where
   pToJSVal Satellite     = jsval ("sat" :: JSString)
   pToJSVal Hybrid        = jsval ("hyb" :: JSString)
 
+instance PFromJSVal MapQuestLayer where
+  pFromJSVal s =
+    case (pFromJSVal s :: JSString) of
+      "sat" -> Satellite
+      "osm" -> OpenStreetMap
+      "hyb" -> Hybrid
+      _     -> error "pFromJSVal(MapQuestLayer): Unexpected layer name"
+
 instance Default MapQuestLayer where def = Satellite
 
 data Source t
@@ -52,6 +62,19 @@ data Source t
       _layer  :: MapQuestLayer
     }
 makeLenses ''Source
+
+instance SyncJS (Source t) t where
+  syncJS jsObj ImageWMS{_url, _params} = liftIO $ do
+    when ([jsu'|$r=`jsObj.getUrl();|] /= _url)
+      [jsu_|`jsObj.setUrl(`_url);|]
+    when ([jsu'|$r=`jsObj.getParams();|] /= _params)
+      [jsu_|`jsObj.updateParams(`_params);|]
+    return Nothing
+
+  syncJS jsObj newHS@MapQuest{_layer}
+    | [jsu'|$r=`jsObj.getLayer()!==`_layer;|] = liftM Just (mkSource newHS)
+    | otherwise                               = return Nothing
+
 
 imageWMS
   :: Reflex t

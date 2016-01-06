@@ -2,6 +2,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -41,8 +42,9 @@ import Reflex.Dom
 import Data.Default (Default(def))
 import qualified Data.Map as M
 import Data.Monoid
+import Data.Maybe (fromMaybe)
 import Control.Lens
-import Control.Monad (when, liftM)
+import Control.Monad (when, liftM, forM)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import GHCJS.Marshal (toJSVal)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
@@ -89,6 +91,17 @@ instance Default LayerBase where
      , _layerBaseMaxResolution    = Nothing
      }
 
+instance SyncJS LayerBase t where
+  syncJS jsObj newHS = do
+    syncEqProp jsObj "opacity"       (newHS^.opacity)
+    syncEqProp jsObj "visible"       (newHS^.visible)
+    syncEqProp jsObj "zIndex"        (newHS^.zIndex)
+    syncEqProp jsObj "extent"        (newHS^.extent)
+    syncEqProp jsObj "minResolution" (newHS^.minResolution)
+    syncEqProp jsObj "maxResolution" (newHS^.maxResolution)
+    return Nothing
+
+
 type LayerSet t = M.Map Int (Layer t)
 
 fromList :: [Layer t] -> LayerSet t
@@ -108,7 +121,7 @@ data Layer t
           , _layerSource :: Source t
           }
   | Group { _layerBase   :: LayerBase
-          , _layerLayers :: Dynamic t (LayerSet t)
+          , _layerLayers :: LayerSet t
           }
 makeFields ''Layer
 
@@ -131,7 +144,7 @@ image = Image def
 tile :: Reflex t => (Source t) -> Layer t
 tile = Tile def
 
-group :: Reflex t => Dynamic t (LayerSet t) -> Layer t
+group :: Reflex t => LayerSet t -> Layer t
 group = Group def
 
 mkLayer :: MonadWidget t m => (Int, Layer t) -> m JSVal
@@ -144,20 +157,55 @@ mkLayer (key,l) = do
       s <- mkSource _layerSource
       liftIO [jsu|$r=new ol.layer.Tile({source: `s});|]
     Group{_layerLayers} -> do
-      r <- liftIO [jsu|$r=new ol.layer.Group({});|]
-      dynInitializeWith (mapM mkLayer . M.toAscList) _layerLayers $
-        \newLayers -> liftIO $ do
-          ls <- toJSVal newLayers
-          [jsu_|h$updateGroupLayers(`r, `ls);|]
-      return r
-  setProp "opacity" r (l^.opacity)
-  setProp "visible" r (l^.visible)
-  setProp "zIndex" r (l^.zIndex)
-  setProp "extent" r (l^.extent)
-  setProp "minResolution" r (l^.minResolution)
-  setProp "maxResolution" r (l^.maxResolution)
-  liftIO $ [jsu_|`r['h$key']=`key|]
+      ls <- liftIO . toJSVal =<< mapM mkLayer (M.toAscList _layerLayers)
+      liftIO [jsu|$r=new ol.layer.Group({layers:`ls});|]
+  setPropIfNotNull "opacity" r (l^.opacity)
+  setPropIfNotNull "visible" r (l^.visible)
+  setPropIfNotNull "zIndex" r (l^.zIndex)
+  setPropIfNotNull "extent" r (l^.extent)
+  setPropIfNotNull "minResolution" r (l^.minResolution)
+  setPropIfNotNull "maxResolution" r (l^.maxResolution)
+  liftIO $ [jsu_|`r['ol$key']=`key|]
   return r
 
-setProp :: (MonadIO m, PToJSVal a) => String -> JSVal -> a -> m ()
-setProp n v a = liftIO [jsu_|if(`a!==null){`v['set'](`n, `a)};|]
+setPropIfNotNull :: (MonadIO m, PToJSVal a) => String -> JSVal -> a -> m ()
+setPropIfNotNull n v a = liftIO [jsu_|if(`a!==null){`v['set'](`n, `a)};|]
+
+instance SyncJS (Layer t) t where
+  syncJS jsObj newHS = do
+    syncJS_ jsObj (newHS^.base)
+    case newHS of
+      Image{_layerSource} -> updateSource _layerSource
+      Tile{_layerSource} -> updateSource _layerSource
+      Group{_layerLayers} -> do
+        newLs <- forM (M.toAscList _layerLayers) $ \(key, l) -> do
+          case [jsu'|$r=`keyMap[`key];|] of
+            Just jsL -> syncJS_ jsL l >> return jsL
+            Nothing  -> mkLayer (key, l)
+        liftIO $ do
+          jsNewLs <- toJSVal newLs
+          [jsu_|`jsObj.setLayers(new ol.Collection(`jsNewLs));|]
+        return Nothing
+
+    where
+      updateSource newSource = do
+        mNewVal <- syncJS [jsu'|$r=`jsObj.getSource();|] newSource
+        case mNewVal of
+          Just newVal -> liftIO [jsu_|`jsObj.setSource(`newVal);|]
+          Nothing -> return ()
+        return Nothing
+
+      keyMap = fromMaybe (error "syncJS(Layer(Group)): missing key on js obj")
+                         (mkKeyMap [js'|$r=`jsObj.getLayers().getArray();|])
+      mkKeyMap :: JSVal -> Maybe JSVal
+      mkKeyMap arr = [jsu'|
+        $r = {};
+        for (var i=0; i<`arr.length; i++) {
+          var o=`arr[i], h=o["ol$key"];
+          if (typeof h != "undefined") {
+            $r[h] = o;
+          } else {
+            $r=null;
+            break;
+          }
+        }|]

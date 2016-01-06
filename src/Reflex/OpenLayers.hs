@@ -42,7 +42,7 @@ import Reflex
 import Reflex.Dom
 
 import Control.Lens (lens, makeFields, (^.), (^?))
-import Control.Monad (liftM)
+import Control.Monad (liftM, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.ByteString (ByteString)
 import Data.Default (Default)
@@ -54,6 +54,7 @@ import Data.Maybe (fromJust)
 import GHCJS.DOM.HTMLDivElement (castToHTMLDivElement)
 import GHCJS.DOM.Element (toElement)
 import GHCJS.DOM.Types (unElement)
+import GHCJS.Marshal(toJSVal)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types (JSVal)
 import GHCJS.Foreign.QQ
@@ -90,6 +91,13 @@ instance PFromJSVal View where
                       [js'|$r=`v.getRotation();|]
 
 makeFields ''View
+
+instance SyncJS View t where
+  syncJS jsObj newHS = do
+    syncEqProp jsObj "center" (newHS^.center)
+    syncEqProp jsObj "resolution" (newHS^.resolution)
+    syncEqProp jsObj "rotation" (newHS^.rotation)
+    return Nothing
 
 instance Default View where
   def = View {
@@ -131,15 +139,13 @@ olMap :: MonadWidget t m => Map t -> m (MapWidget t)
 olMap cfg = do
   target <- liftM (unElement . toElement . castToHTMLDivElement) $
               buildEmptyElement "div" (cfg^.attributes)
-  g <- mkLayer (0, (group (fromJust (cfg^?layers))))
+
   v <- mkView def
-  m :: JSVal <- liftIO $ [jsu|$r = new ol.Map({layers:`g, view:`v});|]
-  (eUpdating, tUpdating) <- newEventWithTriggerRef
-  isUpdating <- hold False eUpdating
-  dynInitializeWith mkView (cfg^.view) $ \newView -> do
-    runFrameWithTriggerRef tUpdating True
-    liftIO $ [jsu_|h$updateView(`m, `newView);|]
-    runFrameWithTriggerRef tUpdating False
+  root <- mkLayer (0, group mempty)
+  m :: JSVal <- liftIO $ [jsu|$r = new ol.Map({layers:`root, view:`v}); window._map=$r;|]
+  let Just dynLayers = cfg^?layers
+  dynInitializeWith (syncJS_ root . group) dynLayers   (const (return ()))
+  dynInitializeWith (syncJS_ v)            (cfg^.view) (const (return ()))
   getPostBuild >>=
     performEvent_ . fmap (const (liftIO ([js_|`m.setTarget(`target)|])))
 
@@ -151,7 +157,8 @@ olMap cfg = do
       postGui $ runWithActions [trig :=> v']
     return (liftIO unsubscribe)
 
-  return (MapWidget (gate (fmap not isUpdating) eViewChanged))
+  return (MapWidget eViewChanged)
+
 
 mkView :: MonadIO m => View -> m JSVal
 mkView View{ _viewCenter     = c
