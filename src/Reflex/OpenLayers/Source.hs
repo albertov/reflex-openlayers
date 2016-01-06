@@ -1,4 +1,6 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE JavaScriptFFI #-}
@@ -7,10 +9,16 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE GADTs #-}
 
 module Reflex.OpenLayers.Source (
     Source (..)
   , MapQuestLayer (..)
+  , Tiled
+  , NotTiled
+  , Raster
+  , Vector
   , imageWMS
   , mapQuest
   , mkSource
@@ -31,6 +39,13 @@ import GHCJS.Types (JSVal, JSString, jsval)
 import GHCJS.DOM.Types
 import GHCJS.Foreign.QQ
 
+data TileK = Tiled | NotTiled
+type Tiled = 'Tiled
+type NotTiled = 'NotTiled
+
+data SourceK = Raster | Vector
+type Raster = 'Raster
+type Vector = 'Vector
 
 data MapQuestLayer
   = OpenStreetMap
@@ -53,18 +68,18 @@ instance PFromJSVal MapQuestLayer where
 
 instance Default MapQuestLayer where def = Satellite
 
-data Source t
-  = ImageWMS {
+data Source (r::SourceK) (k::TileK) t where
+  ImageWMS :: {
       _url    :: String
     , _params :: M.Map String String
-    }
-  | MapQuest {
+    } -> Source Raster NotTiled t
+  MapQuest :: {
       _layer  :: MapQuestLayer
-    }
-  deriving Show
+    } -> Source Raster Tiled t
+deriving instance Show (Source r k t)
 makeLenses ''Source
 
-instance SyncJS (Source t) t where
+instance SyncJS (Source r k t) t where
   syncJS jsObj newHS | fastEq jsObj newHS = return Nothing
   syncJS jsObj newHS@ImageWMS{_url, _params} = liftIO $ do
     setStableName jsObj newHS
@@ -81,13 +96,13 @@ instance SyncJS (Source t) t where
 
 imageWMS
   :: Reflex t
-  => String -> (M.Map String String) -> Source t
+  => String -> (M.Map String String) -> Source Raster NotTiled t
 imageWMS = ImageWMS
 
-mapQuest :: Reflex t => MapQuestLayer -> Source t
+mapQuest :: Reflex t => MapQuestLayer -> Source Raster Tiled t
 mapQuest = MapQuest
 
-mkSource :: MonadWidget t m => Source t -> m JSVal
+mkSource :: MonadWidget t m => Source r k t -> m JSVal
 mkSource s = liftIO $ do
   r <- case s of
     ImageWMS{_url, _params} -> do

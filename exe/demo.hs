@@ -1,5 +1,6 @@
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE GADTs #-}
 module Main (main) where
 
 import Reflex.Dom
@@ -119,24 +120,31 @@ layerWidget layer = el "li" $ do
       & widgetConfig_initialValue .~ show curZIndex
   let eZindex = fmapMaybe readMay (change zIndexInput)
 
-  dynSource <- mapDyn (^?source) layer
-  eSource <- sourceWidget dynSource
+  curLayer <- sample (current layer)
+  changeSource <- case curLayer of
+    Image{} -> do
+      eSource <- sourceWidget =<< mapDyn (^?imageSource) layer
+      return $ fmap (\v -> Just . (imageSource .~ v)) eSource
+    Tile{} -> do
+      eSource <- sourceWidget =<< mapDyn (^?tileSource) layer
+      return $ fmap (\v -> Just . (tileSource .~ v)) eSource
+    _ -> return never
 
 
   eDelete <- button "delete"
 
   return $ mergeWith (>=>) [
-      fmap (\v l -> Just (l & visible .~ v)) eVisible
-    , fmap (\v l -> Just (l & opacity .~ v)) eOpacity
-    , fmap (\v l -> Just (l & zIndex  .~ v)) eZindex
-    , fmap (\v l -> Just (l & source  .~ v)) eSource
+      fmap (\v -> Just . (visible .~ v)) eVisible
+    , fmap (\v -> Just . (opacity .~ v)) eOpacity
+    , fmap (\v -> Just . (zIndex  .~ v)) eZindex
+    , changeSource
     , fmap (\_ _ -> Nothing) eDelete
     ]
 
 sourceWidget
   :: MonadWidget t m
-  => Dynamic t (Maybe (Source t))
-  -> m (Event t (Source t))
+  => Dynamic t (Maybe (Source r k t))
+  -> m (Event t (Source r k t))
 sourceWidget val = do
   curVal <- sample (current val)
   case curVal of

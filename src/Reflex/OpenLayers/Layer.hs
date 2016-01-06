@@ -8,6 +8,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE JavaScriptFFI #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE GADTs #-}
 
 module Reflex.OpenLayers.Layer (
     Layer (..)
@@ -28,12 +30,13 @@ module Reflex.OpenLayers.Layer (
   , HasMinResolution(..)
   , HasMaxResolution(..)
   , HasZIndex(..)
-  , HasSource(..)
   , HasLayers(..)
+  , HasTileSource(..)
+  , HasImageSource(..)
 ) where
 
 
-import Reflex.OpenLayers.Source (Source, mkSource)
+import Reflex.OpenLayers.Source
 import Reflex.OpenLayers.Util
 
 import Reflex
@@ -116,10 +119,10 @@ pushLayer v m = case M.maxViewWithKey m of
 
 data Layer t
   = Image { _layerBase   :: LayerBase
-          , _layerSource :: Source t
+          , _layerImageSource :: Source Raster NotTiled t
           }
   | Tile  { _layerBase   :: LayerBase
-          , _layerSource :: Source t
+          , _layerTileSource :: Source Raster Tiled t
           }
   | Group { _layerBase   :: LayerBase
           , _layerLayers :: LayerSet t
@@ -140,10 +143,10 @@ instance HasMinResolution (Layer t) ((Maybe Double)) where
 instance HasMaxResolution (Layer t) ((Maybe Double)) where
   maxResolution = base . maxResolution
 
-image :: Reflex t => (Source t) -> Layer t
+image :: Reflex t => Source Raster NotTiled t -> Layer t
 image = Image def
 
-tile :: Reflex t => (Source t) -> Layer t
+tile :: Reflex t => Source Raster Tiled t -> Layer t
 tile = Tile def
 
 group :: Reflex t => LayerSet t -> Layer t
@@ -152,11 +155,11 @@ group = Group def
 mkLayer :: MonadWidget t m => (Int, Layer t) -> m JSVal
 mkLayer (key,l) = do
   r <- case l of
-    Image{_layerSource} -> do
-      s <- mkSource _layerSource
+    Image{_layerImageSource} -> do
+      s <- mkSource _layerImageSource
       liftIO [jsu|$r=new ol.layer.Image({source:`s});|]
-    Tile{_layerSource} -> do
-      s <- mkSource _layerSource
+    Tile{_layerTileSource} -> do
+      s <- mkSource _layerTileSource
       liftIO [jsu|$r=new ol.layer.Tile({source: `s});|]
     Group{_layerLayers} -> do
       ls <- liftIO . toJSVal =<< mapM mkLayer (M.toAscList _layerLayers)
@@ -180,8 +183,8 @@ instance SyncJS (Layer t) t where
     setStableName jsObj newHS
     syncJS_ jsObj (newHS^.base)
     case newHS of
-      Image{_layerSource} -> updateSource _layerSource
-      Tile{_layerSource} -> updateSource _layerSource
+      Image{_layerImageSource} -> updateSource _layerImageSource
+      Tile{_layerTileSource} -> updateSource _layerTileSource
       Group{_layerLayers} -> do
         newLs <- forM (M.toAscList _layerLayers) $ \(key, l) -> do
           case [jsu'|$r=`keyMap[`key];|] of
@@ -193,6 +196,7 @@ instance SyncJS (Layer t) t where
         return Nothing
 
     where
+      updateSource :: MonadWidget t m => Source r k t -> m (Maybe JSVal)
       updateSource newSource = do
         mNewVal <- syncJS [jsu'|$r=`jsObj.getSource();|] newSource
         case mNewVal of
