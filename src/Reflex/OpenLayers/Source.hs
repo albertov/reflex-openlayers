@@ -6,14 +6,21 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
 
 module Reflex.OpenLayers.Source (
     Source (..)
   , MapQuestLayer (..)
+
   , imageWMS
+  , tileWMS
   , mapQuest
+  , osm
+
   , mkSource
+  , HasUrl (..)
+  , HasParams (..)
+  , HasMapQuestLayer (..)
 ) where
 
 import Reflex
@@ -55,28 +62,39 @@ instance Default MapQuestLayer where def = Satellite
 
 data Source t
   = ImageWMS {
-      _url    :: String
-    , _params :: M.Map String String
+      _sourceUrl    :: String
+    , _sourceParams :: M.Map String String
+    }
+  | TileWMS {
+      _sourceUrl    :: String
+    , _sourceParams :: M.Map String String
     }
   | MapQuest {
-      _layer  :: MapQuestLayer
+      _sourceMapQuestLayer  :: MapQuestLayer
     }
+  | OSM
   deriving Show
-makeLenses ''Source
+makeFields ''Source
 
 instance SyncJS (Source t) t where
   syncJS jsObj newHS | fastEq jsObj newHS = return Nothing
-  syncJS jsObj newHS@ImageWMS{_url, _params} = liftIO $ do
+  syncJS jsObj newHS = do
     setStableName jsObj newHS
-    when ([jsu'|$r=`jsObj.getUrl();|] /= _url)
-      [jsu_|`jsObj.setUrl(`_url);|]
-    when ([jsu'|$r=`jsObj.getParams();|] /= _params)
-      [jsu_|`jsObj.updateParams(`_params);|]
-    return Nothing
+    case newHS of
+      MapQuest{}
+        | Just l <- newHS^?mapQuestLayer, [jsu'|$r=`jsObj.getLayer()!==`l;|] ->
+          liftM Just (mkSource newHS)
 
-  syncJS jsObj newHS@MapQuest{_layer}
-    | [jsu'|$r=`jsObj.getLayer()!==`_layer;|] = liftM Just (mkSource newHS)
-    | otherwise                               = return Nothing
+      _ | Just u <- newHS^?url, [jsu'|$r=`jsObj.getUrl();|] /= u -> do
+          liftIO [jsu_|`jsObj.setUrl(`u);|]
+          return Nothing
+
+      _ | Just p <- newHS^?params, [jsu'|$r=`jsObj.getParams();|] /= p -> do
+          liftIO [jsu_|`jsObj.updateParams(`p);|]
+          return Nothing
+
+      _ -> return Nothing
+
 
 
 imageWMS
@@ -84,15 +102,30 @@ imageWMS
   => String -> (M.Map String String) -> Source t
 imageWMS = ImageWMS
 
+tileWMS
+  :: Reflex t
+  => String -> (M.Map String String) -> Source t
+tileWMS = TileWMS
+
 mapQuest :: Reflex t => MapQuestLayer -> Source t
 mapQuest = MapQuest
+
+osm :: Reflex t => Source t
+osm = OSM
 
 mkSource :: MonadWidget t m => Source t -> m JSVal
 mkSource s = liftIO $ do
   r <- case s of
-    ImageWMS{_url, _params} -> do
-      [jsu|$r=new ol.source.ImageWMS({url:`_url, params:`_params});|]
-    MapQuest{_layer} ->
-      [jsu|$r=new ol.source.MapQuest({layer:`_layer});|]
+    ImageWMS{_sourceUrl=u, _sourceParams=p} ->
+      [jsu|$r=new ol.source.ImageWMS({url:`u, params:`p});|]
+
+    TileWMS{_sourceUrl=u, _sourceParams=p} ->
+      [jsu|$r=new ol.source.TileWMS({url:`u, params:`p});|]
+
+    MapQuest{_sourceMapQuestLayer} ->
+      [jsu|$r=new ol.source.MapQuest({layer:`_sourceMapQuestLayer});|]
+
+    OSM -> [jsu|$r=new ol.source.OSM({});|]
+
   setStableName r s
   return r

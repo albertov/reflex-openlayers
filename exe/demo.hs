@@ -11,6 +11,7 @@ import Control.Monad
 import Control.Lens ((^.), (^?), over, views)
 import qualified Data.Map as M
 import Data.List (foldl')
+import Data.Maybe (fromJust)
 import Safe (readMay)
 
 main :: IO ()
@@ -82,10 +83,11 @@ main = mainWidgetWithCss olCss $ mdo
 
 initialLayers = fromList
   [ tile $ mapQuest Satellite
-  , image $
-      imageWMS
+  , tile $
+      tileWMS
         "http://demo.boundlessgeo.com/geoserver/wms"
         ("LAYERS" =: "topp:states")
+  , tile osm
   ]
 
 initialView = def & center .~ Coordinates (-10997148) 4569099
@@ -140,18 +142,20 @@ sourceWidget
 sourceWidget val = do
   curVal <- sample (current val)
   case curVal of
-    Just (s@ImageWMS{_url}) -> do
-      el "label" $ do
-        text "URL"
-        input <- htmlTextInput "url" $ def
-          & widgetConfig_initialValue .~ _url
-        return $ fmap (\v -> s {_url=v}) (blurOrEnter input)
-    Just (s@MapQuest{_layer}) -> do
+    Just s@MapQuest{} -> do
       el "label" $ do
         text "Layer"
         input <- htmlDropdownStatic [minBound..maxBound] show id $ def
-          & widgetConfig_initialValue .~ _layer
-        return $ fmap (\v -> s {_layer=v}) (change input)
+          & widgetConfig_initialValue .~ fromJust (s^?mapQuestLayer)
+        return $ fmap (\v -> s & mapQuestLayer.~v) (change input)
+
+    Just s | Just u <- s^?url -> do
+      el "label" $ do
+        text "URL"
+        input <- htmlTextInput "url" $ def
+          & widgetConfig_initialValue .~ u
+        return $ fmap (\v -> s & url.~v) (blurOrEnter input)
+
     _ -> return never
 
 data Direction = North | South | East | West
