@@ -83,10 +83,11 @@ main = mainWidgetWithCss olCss $ mdo
 
 initialLayers = fromList
   [ tile $ mapQuest Satellite
-  , image $
-      imageWMS
+  , tile $
+      tileWMS
         "http://demo.boundlessgeo.com/geoserver/wms"
         ("LAYERS" =: "topp:states")
+  , tile osm
   ]
 
 initialView = def & center .~ Coordinates (-10997148) 4569099
@@ -148,12 +149,18 @@ sourceWidget
 sourceWidget val = do
   curVal <- sample (current val)
   case curVal of
-    Just (s@ImageWMS{_url}) -> do
+    Just (s@ImageWMS{_imageWmsUrl}) -> do
       el "label" $ do
         text "URL"
         input <- htmlTextInput "url" $ def
-          & widgetConfig_initialValue .~ _url
-        return $ fmap (\v -> s {_url=v}) (blurOrEnter input)
+          & widgetConfig_initialValue .~ _imageWmsUrl
+        return $ fmap (\v -> s {_imageWmsUrl=v}) (blurOrEnter input)
+    Just (s@TileWMS{_tileWmsUrl}) -> do
+      el "label" $ do
+        text "URL"
+        input <- htmlTextInput "url" $ def
+          & widgetConfig_initialValue .~ _tileWmsUrl
+        return $ fmap (\v -> s {_tileWmsUrl=v}) (blurOrEnter input)
     Just (s@MapQuest{_layer}) -> do
       el "label" $ do
         text "Layer"
