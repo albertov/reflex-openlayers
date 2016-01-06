@@ -14,7 +14,6 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Reflex.OpenLayers.Source (
@@ -93,27 +92,31 @@ class RasterOperation f s | f->s, s->f where
   packSources   :: s -> IO JSVal
   operationType :: f -> String
 
-data Source (r::SourceK) (k::TileK) where
+data Source (r::SourceK) (k::TileK) t where
   ImageWMS :: {
       _imageWmsUrl    :: String
     , _imageWmsParams :: M.Map String String
-    } -> Source Raster Image
+    } -> Source Raster Image t
+
   TileWMS :: {
       _tileWmsUrl    :: String
     , _tileWmsParams :: M.Map String String
-    } -> Source Raster Tile
+    } -> Source Raster Tile t
+
   MapQuest :: {
       _mapQuestLayer  :: MapQuestLayer
-    } -> Source Raster Tile
-  OSM :: Source Raster Tile
+    } -> Source Raster Tile t
+
+  OSM :: Source Raster Tile t
+
   Raster :: RasterOperation o s => {
       _rasterOperation :: o
     , _rasterSources   :: s
-    } -> Source Raster Image
+    } -> Source Raster Image t
 
 newtype AnySource = AnySource (IO JSVal)
 
-anySource :: Source r k -> AnySource
+anySource :: Source r k t -> AnySource
 anySource s = AnySource (mkSource s)
 
 newtype Pixel = Pixel JSVal deriving (PFromJSVal, PToJSVal)
@@ -132,20 +135,20 @@ instance RasterOperation (Pixel -> Pixel) AnySource where
 
 
 
-instance SyncJS (Source r k) t where
+instance SyncJS (Source r k t) t where
   syncJS jsObj newHS | fastEq jsObj newHS = return Nothing
   syncJS jsObj newHS = do
     setStableName jsObj newHS
     case newHS of
       ImageWMS{ _imageWmsUrl=url, _imageWmsParams=params} -> liftIO $ do
-        when ([jsu'|$r=`jsObj.getUrl();|] /= url)
+        when ([jsu'|$r=`jsObj.get('url');|] /= url)
           [jsu_|`jsObj.setUrl(`url);|]
         when ([jsu'|$r=`jsObj.getParams();|] /= params)
           [jsu_|`jsObj.updateParams(`params);|]
         return Nothing
 
       TileWMS{ _tileWmsUrl=url, _tileWmsParams=params} -> liftIO $ do
-        when ([jsu'|$r=`jsObj.getUrl();|] /= url)
+        when ([jsu'|$r=`jsObj.get('url');|] /= url)
           [jsu_|`jsObj.setUrl(`url);|]
         when ([jsu'|$r=`jsObj.getParams();|] /= params)
           [jsu_|`jsObj.updateParams(`params);|]
@@ -163,24 +166,24 @@ instance SyncJS (Source r k) t where
 
 
 imageWMS
-  :: String -> M.Map String String -> Source Raster Image
+  :: String -> M.Map String String -> Source Raster Image t
 imageWMS = ImageWMS
 
 tileWMS
-  :: String -> M.Map String String -> Source Raster Tile
+  :: String -> M.Map String String -> Source Raster Tile t
 tileWMS = TileWMS
 
 
-mapQuest :: MapQuestLayer -> Source Raster Tile
+mapQuest :: MapQuestLayer -> Source Raster Tile t
 mapQuest = MapQuest
 
-osm :: Source Raster Tile
+osm :: Source Raster Tile t
 osm = OSM
 
-raster :: RasterOperation o s => o -> s -> Source Raster Image
+raster :: RasterOperation o s => o -> s -> Source Raster Image t
 raster op = Raster op
 
-mkSource :: MonadIO m => Source r k -> m JSVal
+mkSource :: MonadIO m => Source r k t -> m JSVal
 mkSource s = liftIO $ do
   r <- case s of
     ImageWMS{_imageWmsUrl, _imageWmsParams} ->

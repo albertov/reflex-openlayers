@@ -144,8 +144,8 @@ layerWidget layer = el "li" $ do
 
 sourceWidget
   :: MonadWidget t m
-  => Dynamic t (Maybe (Source r k))
-  -> m (Event t (Source r k))
+  => Dynamic t (Maybe (Source r k t))
+  -> m (Event t (Source r k t))
 sourceWidget val = do
   curVal <- sample (current val)
   case curVal of

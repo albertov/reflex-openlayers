@@ -119,10 +119,10 @@ pushLayer v m = case M.maxViewWithKey m of
 
 data Layer t
   = Image { _layerBase   :: LayerBase
-          , _layerImageSource :: Source Raster Image
+          , _layerImageSource :: Source Raster Image t
           }
   | Tile  { _layerBase   :: LayerBase
-          , _layerTileSource :: Source Raster Tile
+          , _layerTileSource :: Source Raster Tile t
           }
   | Group { _layerBase   :: LayerBase
           , _layerLayers :: LayerSet t
@@ -142,10 +142,10 @@ instance HasMinResolution (Layer t) ((Maybe Double)) where
 instance HasMaxResolution (Layer t) ((Maybe Double)) where
   maxResolution = base . maxResolution
 
-image :: Reflex t => Source Raster Image -> Layer t
+image :: Reflex t => Source Raster Image t -> Layer t
 image = Image def
 
-tile :: Reflex t => Source Raster Tile -> Layer t
+tile :: Reflex t => Source Raster Tile t -> Layer t
 tile = Tile def
 
 group :: Reflex t => LayerSet t -> Layer t
@@ -195,7 +195,7 @@ instance SyncJS (Layer t) t where
         return Nothing
 
     where
-      updateSource :: MonadWidget t m => Source r k -> m (Maybe JSVal)
+      updateSource :: MonadWidget t m => Source r k t -> m (Maybe JSVal)
       updateSource newSource = do
         mNewVal <- syncJS [jsu'|$r=`jsObj.getSource();|] newSource
         case mNewVal of
