@@ -61,10 +61,13 @@ data Source t
   | MapQuest {
       _layer  :: MapQuestLayer
     }
+  deriving Show
 makeLenses ''Source
 
 instance SyncJS (Source t) t where
-  syncJS jsObj ImageWMS{_url, _params} = liftIO $ do
+  syncJS jsObj newHS | fastEq jsObj newHS = return Nothing
+  syncJS jsObj newHS@ImageWMS{_url, _params} = liftIO $ do
+    setStableName jsObj newHS
     when ([jsu'|$r=`jsObj.getUrl();|] /= _url)
       [jsu_|`jsObj.setUrl(`_url);|]
     when ([jsu'|$r=`jsObj.getParams();|] /= _params)
@@ -91,4 +94,5 @@ mkSource s = liftIO $ do
       [jsu|$r=new ol.source.ImageWMS({url:`_url, params:`_params});|]
     MapQuest{_layer} ->
       [jsu|$r=new ol.source.MapQuest({layer:`_layer});|]
+  setStableName r s
   return r

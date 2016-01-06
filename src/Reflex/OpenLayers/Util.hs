@@ -1,4 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -6,10 +7,13 @@
 {-# LANGUAGE JavaScriptFFI #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Reflex.OpenLayers.Util (
     SyncJS (..)
+  , fastEq
+  , setStableName
   , dynInitialize
   , dynInitializeWith
   , syncJS_
@@ -32,6 +36,20 @@ import GHCJS.Types
 import GHCJS.DOM.Types (toJSString)
 import qualified JavaScript.Object as O
 import System.IO.Unsafe (unsafePerformIO)
+import Unsafe.Coerce (unsafeCoerce)
+import System.Mem.StableName
+
+
+fastEq :: JSVal -> a ->  Bool
+fastEq j o = unsafePerformIO $ do
+  sName <- makeStableName o
+  let o2 = unsafeCoerce sName :: JSVal
+  [jsu|$r=h$eqStableName(`o2, `j['h$sName']);|]
+
+setStableName :: MonadIO m => JSVal -> a -> m ()
+setStableName j
+  = liftIO . (makeStableName >=> \n -> let !n2 = unsafeCoerce n :: JSVal
+                                       in [jsu_|`j['h$sName']=`n2;|])
 
 class SyncJS a t where
   syncJS :: MonadWidget t m => JSVal -> a -> m (Maybe JSVal)

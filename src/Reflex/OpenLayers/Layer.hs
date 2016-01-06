@@ -79,6 +79,7 @@ data LayerBase
     , _layerBaseMinResolution :: (Maybe Double)
     , _layerBaseMaxResolution :: (Maybe Double)
     }
+  deriving Show
 makeFields ''LayerBase
 
 instance Default LayerBase where
@@ -123,6 +124,7 @@ data Layer t
   | Group { _layerBase   :: LayerBase
           , _layerLayers :: LayerSet t
           }
+  deriving Show
 makeFields ''Layer
 
 instance HasOpacity (Layer t) (Opacity) where
@@ -166,13 +168,16 @@ mkLayer (key,l) = do
   setPropIfNotNull "minResolution" r (l^.minResolution)
   setPropIfNotNull "maxResolution" r (l^.maxResolution)
   liftIO $ [jsu_|`r['ol$key']=`key|]
+  setStableName r l
   return r
 
 setPropIfNotNull :: (MonadIO m, PToJSVal a) => String -> JSVal -> a -> m ()
 setPropIfNotNull n v a = liftIO [jsu_|if(`a!==null){`v['set'](`n, `a)};|]
 
 instance SyncJS (Layer t) t where
+  syncJS jsObj newHS | fastEq jsObj newHS = return Nothing
   syncJS jsObj newHS = do
+    setStableName jsObj newHS
     syncJS_ jsObj (newHS^.base)
     case newHS of
       Image{_layerSource} -> updateSource _layerSource
