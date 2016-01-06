@@ -34,7 +34,7 @@ library
     , Reflex.OpenLayers.Event
     , Reflex.OpenLayers.Util
   ghc-prof-options: -fprof-auto
-  ghc-options: -threaded -Wall -fwarn-tabs -funbox-strict-fields
+  ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
   --cpp-options: -DGHCJS_TRACE_WEAK
   js-sources: static/ol.js
   default-language: Haskell2010
@@ -53,5 +53,5 @@ executable reflex-openlayers-demo
     containers,
     safe
   default-language: Haskell2010
-  ghc-options: -threaded -Wall -fwarn-tabs -funbox-strict-fields
+  ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
   --cpp-options: -DGHCJS_TRACE_WEAK

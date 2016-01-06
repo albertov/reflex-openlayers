@@ -87,7 +87,7 @@ initialLayers = fromList
       tileWMS
         "http://demo.boundlessgeo.com/geoserver/wms"
         ("LAYERS" =: "topp:states")
-  , tile osm
+  , image $ raster (\p -> p & red .~ 0) (anySource osm)
   ]
 
 initialView = def & center .~ Coordinates (-10997148) 4569099
@@ -144,8 +144,8 @@ layerWidget layer = el "li" $ do
 
 sourceWidget
   :: MonadWidget t m
-  => Dynamic t (Maybe (Source r k t))
-  -> m (Event t (Source r k t))
+  => Dynamic t (Maybe (Source r k))
+  -> m (Event t (Source r k))
 sourceWidget val = do
   curVal <- sample (current val)
   case curVal of
@@ -161,12 +161,12 @@ sourceWidget val = do
         input <- htmlTextInput "url" $ def
           & widgetConfig_initialValue .~ _tileWmsUrl
         return $ fmap (\v -> s {_tileWmsUrl=v}) (blurOrEnter input)
-    Just (s@MapQuest{_layer}) -> do
+    Just (s@MapQuest{_mapQuestLayer}) -> do
       el "label" $ do
         text "Layer"
         input <- htmlDropdownStatic [minBound..maxBound] show id $ def
-          & widgetConfig_initialValue .~ _layer
-        return $ fmap (\v -> s {_layer=v}) (change input)
+          & widgetConfig_initialValue .~ _mapQuestLayer
+        return $ fmap (\v -> s {_mapQuestLayer=v}) (change input)
     _ -> return never
 
 data Direction = North | South | East | West

@@ -119,15 +119,14 @@ pushLayer v m = case M.maxViewWithKey m of
 
 data Layer t
   = Image { _layerBase   :: LayerBase
-          , _layerImageSource :: Source Raster NotTiled t
+          , _layerImageSource :: Source Raster Image
           }
   | Tile  { _layerBase   :: LayerBase
-          , _layerTileSource :: Source Raster Tiled t
+          , _layerTileSource :: Source Raster Tile
           }
   | Group { _layerBase   :: LayerBase
           , _layerLayers :: LayerSet t
           }
-  deriving Show
 makeFields ''Layer
 
 instance HasOpacity (Layer t) (Opacity) where
@@ -143,10 +142,10 @@ instance HasMinResolution (Layer t) ((Maybe Double)) where
 instance HasMaxResolution (Layer t) ((Maybe Double)) where
   maxResolution = base . maxResolution
 
-image :: Reflex t => Source Raster NotTiled t -> Layer t
+image :: Reflex t => Source Raster Image -> Layer t
 image = Image def
 
-tile :: Reflex t => Source Raster Tiled t -> Layer t
+tile :: Reflex t => Source Raster Tile -> Layer t
 tile = Tile def
 
 group :: Reflex t => LayerSet t -> Layer t
@@ -196,7 +195,7 @@ instance SyncJS (Layer t) t where
         return Nothing
 
     where
-      updateSource :: MonadWidget t m => Source r k t -> m (Maybe JSVal)
+      updateSource :: MonadWidget t m => Source r k -> m (Maybe JSVal)
       updateSource newSource = do
         mNewVal <- syncJS [jsu'|$r=`jsObj.getSource();|] newSource
         case mNewVal of
