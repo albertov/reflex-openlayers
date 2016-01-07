@@ -21,6 +21,7 @@ library
     ghcjs-ffiqq,
     reflex-dom,
     containers,
+    ref-tf,
     transformers,
     data-default,
     file-embed,

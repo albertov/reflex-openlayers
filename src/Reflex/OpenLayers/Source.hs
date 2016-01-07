@@ -135,35 +135,6 @@ instance RasterOperation (Pixel -> Pixel) AnySource where
 
 
 
-instance SyncJS (Source r k t) t where
-  syncJS jsObj newHS | fastEq jsObj newHS = return Nothing
-  syncJS jsObj newHS = do
-    setStableName jsObj newHS
-    case newHS of
-      ImageWMS{ _imageWmsUrl=url, _imageWmsParams=params} -> liftIO $ do
-        when ([jsu'|$r=`jsObj.get('url');|] /= url)
-          [jsu_|`jsObj.setUrl(`url);|]
-        when ([jsu'|$r=`jsObj.getParams();|] /= params)
-          [jsu_|`jsObj.updateParams(`params);|]
-        return Nothing
-
-      TileWMS{ _tileWmsUrl=url, _tileWmsParams=params} -> liftIO $ do
-        when ([jsu'|$r=`jsObj.get('url');|] /= url)
-          [jsu_|`jsObj.setUrl(`url);|]
-        when ([jsu'|$r=`jsObj.getParams();|] /= params)
-          [jsu_|`jsObj.updateParams(`params);|]
-        return Nothing
-
-      MapQuest{_mapQuestLayer}
-        | [jsu'|$r=`jsObj.getLayer()!==`_mapQuestLayer;|] ->
-          liftM Just (mkSource newHS)
-        | otherwise                               -> return Nothing
-
-      OSM -> return Nothing
-
-      Raster {} -> liftM Just (mkSource newHS)
-
-
 
 imageWMS
   :: String -> M.Map String String -> Source Raster Image t

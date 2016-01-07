@@ -9,11 +9,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DataKinds #-}
 
 module Reflex.OpenLayers (
     Map
   , MapWidget
   , View
+  , Property(..)
+  , PropertyObj(..)
   , Coordinates (..)
   , HasAttributes(..)
   , HasX(..)
@@ -24,8 +28,11 @@ module Reflex.OpenLayers (
   , HasRotation (..)
   , HasLayers (..)
   , HasViewChanged (..)
+  , HasInitialValue (..)
   , olMap
   , olCss
+  , property
+  , updateProperty
 
   , module Reflex.OpenLayers.Layer
   , module Reflex.OpenLayers.Source
@@ -41,7 +48,7 @@ import Reflex.Host.Class (newEventWithTrigger, newEventWithTriggerRef)
 import Reflex
 import Reflex.Dom
 
-import Control.Lens (lens, makeFields, (^.), (^?))
+import Control.Lens (lens, makeFields, (^.), (^?), (^?!))
 import Control.Monad (liftM, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.ByteString (ByteString)
@@ -54,9 +61,9 @@ import Data.Maybe (fromJust)
 import GHCJS.DOM.HTMLDivElement (castToHTMLDivElement)
 import GHCJS.DOM.Element (toElement)
 import GHCJS.DOM.Types (unElement)
-import GHCJS.Marshal(toJSVal)
+import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
-import GHCJS.Types (JSVal)
+import GHCJS.Types (JSVal, IsJSVal)
 import GHCJS.Foreign.QQ
 
 --
@@ -92,13 +99,6 @@ instance PFromJSVal View where
 
 makeFields ''View
 
-instance SyncJS View t where
-  syncJS jsObj newHS = do
-    syncEqProp jsObj "center" (newHS^.center)
-    syncEqProp jsObj "resolution" (newHS^.resolution)
-    syncEqProp jsObj "rotation" (newHS^.rotation)
-    return Nothing
-
 instance Default View where
   def = View {
       _viewCenter     = Coordinates 0 0
@@ -114,9 +114,13 @@ data Map t
   = Map {
       _map_attributes :: Dynamic t (M.Map String String)
     , _mapView        :: Dynamic t View
-    , _mapLayers      :: Dynamic t (LayerSet t)
+    , _mapLayers      :: Property t "layers" (LayerSet t Property)
     }
 makeFields ''Map
+
+newtype JSMap = JSMap JSVal
+  deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
+instance IsJSVal JSMap
 
 instance HasAttributes (Map t) where
   type Attrs (Map t) = Dynamic t (M.Map String String)
@@ -126,12 +130,13 @@ instance Reflex t => Default (Map t) where
   def = Map {
         _map_attributes  = constDyn mempty
       , _mapView         = constDyn def
-      , _mapLayers       = constDyn mempty
+      , _mapLayers       = def
     }
 
 data MapWidget t
   = MapWidget {
       _mapWidgetViewChanged :: Event t View
+    , _mapWidgetLayers      :: PropertyObj t "layers" (LayerSet t PropertyObj)
     }
 makeFields ''MapWidget
 
@@ -141,11 +146,7 @@ olMap cfg = do
               buildEmptyElement "div" (cfg^.attributes)
 
   v <- mkView def
-  root <- mkLayer (0, group mempty)
-  m :: JSVal <- liftIO $ [jsu|$r = new ol.Map({layers:`root, view:`v}); window._map=$r;|]
-  let Just dynLayers = cfg^?layers
-  dynInitializeWith (syncJS_ root . group) dynLayers   (const (return ()))
-  dynInitializeWith (syncJS_ v)            (cfg^.view) (const (return ()))
+  m :: JSMap <- liftIO $ [jsu|$r = new ol.Map({view:`v}); window._map=$r;|]
   getPostBuild >>=
     performEvent_ . fmap (const (liftIO ([js_|`m.setTarget(`target)|])))
 
@@ -157,7 +158,8 @@ olMap cfg = do
       postGui $ runWithActions [trig :=> v']
     return (liftIO unsubscribe)
 
-  return (MapWidget eViewChanged)
+  MapWidget <$> pure eViewChanged
+            <*> initProperty m (cfg^?!layers)
 
 
 mkView :: MonadIO m => View -> m JSVal
@@ -168,6 +170,12 @@ mkView View{ _viewCenter     = c
   liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, resolution:`rs});|]
 
 
+instance HasNamedProperty JSMap "layers" (LayerSet t Property) (LayerSet t PropertyObj) t
+  where
+    initProperty m (Property ls e) = do
+      (jsL, Group _ lg) <- mkLayer (0, group ls)
+      liftIO [jsu_|`m.setLayerGroup(`jsL);|]
+      PropertyObj <$> holdDyn lg never <*> pure (const (return ()))
 
 -- CSS
 --

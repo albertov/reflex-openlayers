@@ -9,7 +9,7 @@ import Reflex.Dom.Contrib.Widgets.BoundedList (mkHiding)
 import Reflex.OpenLayers
 
 import Control.Monad
-import Control.Lens ((^.), (^?), over, views)
+import Control.Lens ((^.), (^?), (^?!), over, views)
 import qualified Data.Map as M
 import Data.List (foldl')
 import Safe (readMay)
@@ -18,23 +18,9 @@ main :: IO ()
 main = mainWidgetWithCss olCss $ mdo
   mapWidget <- olMap $ def
     & view  .~ dynView
-    & layers  .~ dynLayers
+    & layers  .~ property (fromList initialLayers)
 
-  dynLayers <- dtdd "layers" $ mdo
-    osmSource <- anySource osm
-    let initialLayers' = fromList $ initialLayers ++ [
-          --image $ raster (over red (`div`2)) osmSource
-          ]
-    dynLayerMap <- foldDyn ($) initialLayers' $
-                     switch $ current itemChangeEvent
-    events <- el "ul" $ list dynLayerMap layerWidget
-    let combineItemChanges
-          = fmap ( foldl' (.) id)
-          . mergeList
-          . map (\(k, v) -> fmap (flip M.update k) v)
-          . M.toList
-    itemChangeEvent <- mapDyn combineItemChanges events
-    return dynLayerMap
+  el "ul" $ listWithKey (value (mapWidget^?!layers)) layerWidget
 
   dynView <- dtdd "view" $ mdo
     dynView <- foldDyn ($) initialView $ mergeWith(.) [
@@ -98,34 +84,42 @@ initialView = def & center .~ Coordinates (-10997148) 4569099
 
 layerWidget
   :: MonadWidget t m
-  => Dynamic t (Layer t)
-  -> m (Event t (Layer t -> Maybe (Layer t)))
-layerWidget layer = el "li" $ do
-
-  dynVisible <- mapDyn (^.visible) layer
-  eVisible <- el "label" $ do
-    e <- checkboxView (constDyn mempty) dynVisible
-    text "Visible?"
-    return e
-
-  dynOpacity <- mapDyn (^.opacity) layer
-  curOpacity <- sample (current dynOpacity)
-  opacityInput <- el "label" $ do
-    text "Opacity"
-    htmlTextInput "number" $ def
-      & widgetConfig_initialValue .~ show curOpacity
-      & attributes .~ constDyn ("step" =: "0.05")
-  let eOpacity = fmapMaybe readMay (change opacityInput)
-
-  dynZIndex <- mapDyn (^.zIndex) layer
-  curZIndex <- sample (current dynZIndex)
-  zIndexInput <- el "label" $ do
-    text "zIndex"
-    htmlTextInput "number" $ def
-      & widgetConfig_initialValue .~ show curZIndex
-  let eZindex = fmapMaybe readMay (change zIndexInput)
-
+  => Int
+  -> Dynamic t (Layer t PropertyObj)
+  -> m (Event t ())
+layerWidget key layer = el "li" $ do
   curLayer <- sample (current layer)
+
+  el "label" $ do
+    let dynValue = value (curLayer^.visible)
+    curValue <- sample (current dynValue)
+    input <- checkbox curValue $ def
+      & setValue .~ updated dynValue
+    text "Visible?"
+    updateProperty (curLayer^.visible) (_checkbox_change input)
+
+  el "label" $ do
+    text "Opacity"
+    let dynValue = value (curLayer^.opacity)
+    curValue <- sample (current dynValue)
+    input <- htmlTextInput "number" $ def
+      & widgetConfig_initialValue .~ show curValue
+      & setValue .~ fmap show (updated dynValue)
+      & attributes .~ constDyn ("step" =: "0.05")
+    updateProperty (curLayer^.opacity) $
+      fmapMaybe readMay (change input)
+
+  el "label" $ do
+    text "ZIndex"
+    let dynValue = value (curLayer^.zIndex)
+    curValue <- sample (current dynValue)
+    input <- htmlTextInput "number" $ def
+      & widgetConfig_initialValue .~ show curValue
+      & setValue .~ fmap show (updated dynValue)
+    updateProperty (curLayer^.zIndex) $
+      fmapMaybe readMay (change input)
+
+  {-
   changeSource <- case curLayer of
     Image{} -> do
       eSource <- sourceWidget =<< mapDyn (^?imageSource) layer
@@ -134,17 +128,10 @@ layerWidget layer = el "li" $ do
       eSource <- sourceWidget =<< mapDyn (^?tileSource) layer
       return $ fmap (\v -> Just . (tileSource .~ v)) eSource
     _ -> return never
+  -}
 
 
-  eDelete <- button "delete"
-
-  return $ mergeWith (>=>) [
-      fmap (\v -> Just . (visible .~ v)) eVisible
-    , fmap (\v -> Just . (opacity .~ v)) eOpacity
-    , fmap (\v -> Just . (zIndex  .~ v)) eZindex
-    , changeSource
-    , fmap (\_ _ -> Nothing) eDelete
-    ]
+  button "delete"
 
 sourceWidget
   :: MonadWidget t m
