@@ -21,7 +21,12 @@ main = mainWidgetWithCss olCss $ mdo
     & layers  .~ dynLayers
 
   dynLayers <- dtdd "layers" $ mdo
-    dynLayerMap <- foldDyn ($) initialLayers $ switch $ current itemChangeEvent
+    osmSource <- anySource osm
+    let initialLayers' = fromList $ initialLayers ++ [
+          --image $ raster (over red (`div`2)) osmSource
+          ]
+    dynLayerMap <- foldDyn ($) initialLayers' $
+                     switch $ current itemChangeEvent
     events <- el "ul" $ list dynLayerMap layerWidget
     let combineItemChanges
           = fmap ( foldl' (.) id)
@@ -81,13 +86,12 @@ main = mainWidgetWithCss olCss $ mdo
     return dynView
   return ()
 
-initialLayers = fromList
+initialLayers =
   [ tile $ mapQuest Satellite
   , tile $
       tileWMS
         "http://demo.boundlessgeo.com/geoserver/wms"
         ("LAYERS" =: "topp:states")
-  , image $ raster (\p -> p & red .~ 0) (anySource osm)
   ]
 
 initialView = def & center .~ Coordinates (-10997148) 4569099

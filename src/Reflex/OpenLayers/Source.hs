@@ -89,7 +89,7 @@ instance Default MapQuestLayer where def = Satellite
 
 class RasterOperation f s | f->s, s->f where
   applyOp       :: f -> JSVal -> IO JSVal
-  packSources   :: s -> IO JSVal
+  packSources   :: MonadWidget t m => s -> m JSVal
   operationType :: f -> String
 
 data Source (r::SourceK) (k::TileK) t where
@@ -114,23 +114,23 @@ data Source (r::SourceK) (k::TileK) t where
     , _rasterSources   :: s
     } -> Source Raster Image t
 
-newtype AnySource = AnySource (IO JSVal)
+newtype AnySource = AnySource (JSVal)
 
-anySource :: Source r k t -> AnySource
-anySource s = AnySource (mkSource s)
+anySource :: MonadWidget t m => Source r k t -> m AnySource
+anySource = fmap AnySource . mkSource
 
 newtype Pixel = Pixel JSVal deriving (PFromJSVal, PToJSVal)
 red, green, blue, alpha :: Lens' Pixel Word8
-red = lens (\p->[jsu'|$r=`p[0];|]) (\p v-> [jsu'|`p[0]=`v; $r=`p;|])
-green = lens (\p->[jsu'|$r=`p[0];|]) (\p v-> [jsu'|`p[0]=`v; $r=`p;|])
-blue = lens (\p->[jsu'|$r=`p[0];|]) (\p v-> [jsu'|`p[0]=`v; $r=`p;|])
-alpha = lens (\p->[jsu'|$r=`p[0];|]) (\p v-> [jsu'|`p[0]=`v; $r=`p;|])
+red = lens (\p->[jsu'|$r=`p[0];|]) (\p v-> [jsu'|$r=`p;$r[0]=`v;|])
+green = lens (\p->[jsu'|$r=`p[1];|]) (\p v-> [jsu'|$r=`p;$r[1]=`v;|])
+blue = lens (\p->[jsu'|$r=`p[2];|]) (\p v-> [jsu'|$r=`p;$r[2]=`v;|])
+alpha = lens (\p->[jsu'|$r=`p[3];|]) (\p v-> [jsu'|$r=`p;$r[3]=`v;|])
 
 
 
 instance RasterOperation (Pixel -> Pixel) AnySource where
   applyOp f i = return (pToJSVal (f [jsu'|$r=`i[0];|]))
-  packSources (AnySource s) = s >>= \s2 -> [jsu|$r=[`s2];|]
+  packSources (AnySource s) = liftIO [jsu|$r=[`s];|]
   operationType _ = "pixel"
 
 
@@ -183,33 +183,34 @@ osm = OSM
 raster :: RasterOperation o s => o -> s -> Source Raster Image t
 raster op = Raster op
 
-mkSource :: MonadIO m => Source r k t -> m JSVal
-mkSource s = liftIO $ do
+mkSource :: MonadWidget t m => Source r k t -> m JSVal
+mkSource s = do
   r <- case s of
     ImageWMS{_imageWmsUrl, _imageWmsParams} ->
-      [jsu|
+      liftIO [jsu|
         $r=new ol.source.ImageWMS(
           {url:`_imageWmsUrl, params:`_imageWmsParams});|]
 
     TileWMS{_tileWmsUrl, _tileWmsParams} ->
-      [jsu|
+      liftIO [jsu|
         $r=new ol.source.TileWMS(
           {url:`_tileWmsUrl, params:`_tileWmsParams});|]
 
     MapQuest{_mapQuestLayer} ->
-      [jsu|$r=new ol.source.MapQuest({layer:`_mapQuestLayer});|]
+      liftIO [jsu|$r=new ol.source.MapQuest({layer:`_mapQuestLayer});|]
 
-    OSM{} -> [jsu|$r=new ol.source.OSM({});|]
+    OSM{} -> liftIO [jsu|$r=new ol.source.OSM({});|]
 
     Raster{_rasterSources, _rasterOperation} -> do
       sources <- packSources _rasterSources
-      let typ = operationType _rasterOperation
-      cb <- fmap jsval $ syncCallback1' (applyOp _rasterOperation)
-      -- TODO Release callback on gc
-      [jsu|$r=new ol.source.Raster({ sources:`sources
-                                   , operation:`cb
-                                   , threads: 0
-                                   , operationType: `typ});|]
+      liftIO $ do
+        let typ = operationType _rasterOperation
+        cb <- fmap jsval $ syncCallback1' (applyOp _rasterOperation)
+        -- TODO Release callback on gc
+        [jsu|$r=new ol.source.Raster({ sources:`sources
+                                     , operation:`cb
+                                     , threads: 0
+                                     , operationType: `typ});|]
   setStableName r s
   return r
 
