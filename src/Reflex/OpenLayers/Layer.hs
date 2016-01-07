@@ -15,6 +15,7 @@
 
 module Reflex.OpenLayers.Layer (
     Layer (..)
+  , JSLayer
   , Extent (..)
   , Opacity
   , LayerSet
@@ -75,8 +76,7 @@ instance PFromJSVal Extent where
 -- Layer
 --
 
-data LayerBase t p
-  = LayerBase {
+data LayerBase t p = LayerBase {
       _layerBaseOpacity       :: p t "opacity" Opacity
     , _layerBaseVisible       :: p t "visible" Bool
     , _layerBaseZIndex        :: p t "zIndex" Int
@@ -85,7 +85,6 @@ data LayerBase t p
     , _layerBaseMaxResolution :: p t "maxResolution" (Maybe Double)
     }
 makeFields ''LayerBase
-makeLenses ''LayerBase
 
 instance Reflex t => Default (LayerBase t Property) where
   def = LayerBase {
@@ -97,86 +96,118 @@ instance Reflex t => Default (LayerBase t Property) where
      , _layerBaseMaxResolution    = property Nothing
      }
 
-type LayerSet t p = M.Map Int (Layer t p)
+type LayerSet = M.Map Int
 
-fromList :: [Layer t p] -> LayerSet t p
+fromList :: [a] -> LayerSet a
 fromList = M.fromList . zip [0..]
 
-pushLayer :: Layer t p -> LayerSet t p -> LayerSet t p
+pushLayer :: a -> LayerSet a -> LayerSet a
 pushLayer v m = case M.maxViewWithKey m of
   Nothing          -> M.singleton (toEnum 0) v
   Just ((k, _), _) -> M.insert (succ k) v m
 
-newtype JSLayer = JSLayer JSVal
-  deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
+data JSLayer t
+  = JSImage { _jSLayerBase   :: LayerBase t PropertyObj
+            , _jSLayerImageSource :: Source Raster Image t
+            , _jSLayerVal  :: JSVal
+            }
+  | JSTile  { _jSLayerBase   :: LayerBase t PropertyObj
+            , _jSLayerTileSource :: Source Raster Tile t
+            , _jSLayerVal  :: JSVal
+            }
+  | JSGroup { _jSLayerBase   :: LayerBase t PropertyObj
+            , _jSLayerLayers :: LayerSet (JSLayer t)
+            , _jSLayerVal  :: JSVal
+            }
+makeFields ''JSLayer
 
-instance IsJSVal JSLayer
+instance PToJSVal (JSLayer t) where pToJSVal = _jSLayerVal
+instance ToJSVal  (JSLayer t) where toJSVal = return . _jSLayerVal
 
-data Layer t p
-  = Image { _layerBase   :: LayerBase t p
+
+data Layer t
+  = Image { _layerBase   :: LayerBase t Property
           , _layerImageSource :: Source Raster Image t
           }
-  | Tile  { _layerBase   :: LayerBase t p
+  | Tile  { _layerBase   :: LayerBase t Property
           , _layerTileSource :: Source Raster Tile t
           }
-  | Group { _layerBase   :: LayerBase t p
-          , _layerLayers :: LayerSet t p
+  | Group { _layerBase   :: LayerBase t Property
+          , _layerLayers :: LayerSet (Layer t)
           }
 makeFields ''Layer
 
-instance HasOpacity (Layer t p) (p t "opacity" Opacity) where
+instance HasOpacity (Layer t) (Property t "opacity" Opacity) where
   opacity = base . opacity
-instance HasVisible (Layer t p) (p t "visible" Bool) where
+instance HasVisible (Layer t) (Property t "visible" Bool) where
   visible = base . visible
-instance HasZIndex (Layer t p) (p t "zIndex" Int) where
+instance HasZIndex (Layer t) (Property t "zIndex" Int) where
   zIndex = base . zIndex
-instance HasExtent (Layer t p) (p t "extent" (Maybe Extent)) where
+instance HasExtent (Layer t) (Property t "extent" (Maybe Extent)) where
   extent = base . extent
-instance HasMinResolution (Layer t p) (p t "minResolution" (Maybe Double)) where
+instance HasMinResolution (Layer t) (Property t "minResolution" (Maybe Double)) where
   minResolution = base . minResolution
-instance HasMaxResolution (Layer t p) (p t "maxResolution" (Maybe Double)) where
+instance HasMaxResolution (Layer t) (Property t "maxResolution" (Maybe Double)) where
   maxResolution = base . maxResolution
 
-instance HasNamedProperty JSLayer "opacity" Opacity Opacity t
-instance HasNamedProperty JSLayer "visible" Bool Bool t
-instance HasNamedProperty JSLayer "zIndex" Int Int t
-instance HasNamedProperty JSLayer "extent" (Maybe Extent) (Maybe Extent) t
-instance HasNamedProperty JSLayer "maxResolution" (Maybe Double) (Maybe Double) t
-instance HasNamedProperty JSLayer "minResolution" (Maybe Double) (Maybe Double) t
 
-image :: Reflex t => Source Raster Image t -> Layer t Property
+instance HasOpacity (JSLayer t) (PropertyObj t "opacity" Opacity) where
+  opacity = base . opacity
+instance HasVisible (JSLayer t) (PropertyObj t "visible" Bool) where
+  visible = base . visible
+instance HasZIndex (JSLayer t) (PropertyObj t "zIndex" Int) where
+  zIndex = base . zIndex
+instance HasExtent (JSLayer t) (PropertyObj t "extent" (Maybe Extent)) where
+  extent = base . extent
+instance HasMinResolution (JSLayer t) (PropertyObj t "minResolution" (Maybe Double)) where
+  minResolution = base . minResolution
+instance HasMaxResolution (JSLayer t) (PropertyObj t "maxResolution" (Maybe Double)) where
+  maxResolution = base . maxResolution
+
+
+instance HasNamedProperty (JSLayer t) "opacity" Opacity Opacity t
+instance HasNamedProperty (JSLayer t) "visible" Bool Bool t
+instance HasNamedProperty (JSLayer t) "zIndex" Int Int t
+instance HasNamedProperty (JSLayer t) "extent" (Maybe Extent) (Maybe Extent) t
+instance HasNamedProperty (JSLayer t) "maxResolution" (Maybe Double) (Maybe Double) t
+instance HasNamedProperty (JSLayer t) "minResolution" (Maybe Double) (Maybe Double) t
+
+image :: Reflex t => Source Raster Image t -> Layer t
 image = Image def
 
-tile :: Reflex t => Source Raster Tile t -> Layer t Property
+tile :: Reflex t => Source Raster Tile t -> Layer t
 tile = Tile def
 
-group :: Reflex t => LayerSet t Property -> Layer t Property
+group :: Reflex t => LayerSet (Layer t) -> Layer t
 group = Group def
 
 mkLayer
   :: MonadWidget t m
-  => (Int, Layer t Property)
-  -> m (JSLayer, Layer t PropertyObj)
+  => (Int, Layer t)
+  -> m (JSLayer t)
 mkLayer (key,l) =
   case l of
     Image{_layerImageSource} -> do
       s <- mkSource _layerImageSource
-      r <- liftIO [jsu|$r=new ol.layer.Image({source:`s});|]
+      j <- liftIO [jsu|$r=new ol.layer.Image({source:`s});|]
+      let r = JSImage undefined _layerImageSource j
       b <- updateBase r (l^.base)
-      return (r, Image b _layerImageSource)
+      return $ r {_jSLayerBase=b}
     Tile{_layerTileSource} -> do
       s <- mkSource _layerTileSource
-      r <- liftIO [jsu|$r=new ol.layer.Tile({source: `s});|]
+      j <- liftIO [jsu|$r=new ol.layer.Tile({source: `s});|]
+      let r = JSTile undefined _layerTileSource j
       b <- updateBase r (l^.base)
-      return (r, Tile b _layerTileSource)
+      return $ r {_jSLayerBase=b}
     Group{_layerLayers} -> do
-      (js,lg) <- fmap unzip $ forM (M.toAscList _layerLayers) $ \(ix, l) -> do
-        (jsL,lp) <- mkLayer (ix,l)
-        return (jsL, (ix,lp))
-      ls <- liftIO (toJSVal js)
-      r <- liftIO [jsu|$r=new ol.layer.Group({layers:`ls});|]
+      ls <- forM (M.toAscList _layerLayers) $ \(ix, l) -> do
+        jsL <- mkLayer (ix,l)
+        return (ix, jsL)
+      jsLs <- liftIO (toJSVal (map snd ls))
+      j <- liftIO [jsu|$r=new ol.layer.Group({layers:`jsLs});|]
+      let r = JSGroup undefined (M.fromList ls) j
       b <- updateBase r (l^.base)
-      return (r, Group b (M.fromList lg))
+      return $ r {_jSLayerBase=b}
 
 updateBase r b =
   LayerBase <$> initProperty r (b^.opacity)
@@ -185,7 +216,3 @@ updateBase r b =
             <*> initProperty r (b^.extent)
             <*> initProperty r (b^.minResolution)
             <*> initProperty r (b^.maxResolution)
-
-
-setPropIfNotNull :: (MonadIO m, PToJSVal a) => String -> JSVal -> a -> m ()
-setPropIfNotNull n v a = liftIO [jsu_|if(`a!==null){`v['set'](`n, `a)};|]

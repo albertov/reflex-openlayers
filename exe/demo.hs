@@ -85,7 +85,7 @@ initialView = def & center .~ Coordinates (-10997148) 4569099
 layerWidget
   :: MonadWidget t m
   => Int
-  -> Dynamic t (Layer t PropertyObj)
+  -> Dynamic t (JSLayer t)
   -> m (Event t ())
 layerWidget key layer = el "li" $ do
   curLayer <- sample (current layer)

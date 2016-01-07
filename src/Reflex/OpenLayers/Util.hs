@@ -136,7 +136,7 @@ instance Reflex t => HasValue (PropertyObj t n a) where
   type Value (PropertyObj t n a) = Dynamic t a
   value = _propertyObjValue
 
-class (KnownSymbol n, IsJSVal o)
+class (KnownSymbol n, PToJSVal o)
   => HasNamedProperty o n a b t | o n t->a, a->b, b->a where
   initProperty :: MonadWidget t m
                => o -> Property t n a -> m (PropertyObj t n b)
@@ -146,7 +146,7 @@ class (KnownSymbol n, IsJSVal o)
     => o -> Property t n a -> m (PropertyObj t n a)
   initProperty o' (Property v e) = do
     let name = symbolVal (Proxy :: Proxy n)
-        o    = jsval o'
+        o    = pToJSVal o'
     (eEmit, ref) <- newEventWithTriggerRef
     emit <- fmap current (holdDyn True eEmit)
     postGui <- askPostGui

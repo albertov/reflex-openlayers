@@ -114,7 +114,7 @@ data Map t
   = Map {
       _map_attributes :: Dynamic t (M.Map String String)
     , _mapView        :: Dynamic t View
-    , _mapLayers      :: Property t "layers" (LayerSet t Property)
+    , _mapLayers      :: Property t "layers" (LayerSet (Layer t))
     }
 makeFields ''Map
 
@@ -136,7 +136,7 @@ instance Reflex t => Default (Map t) where
 data MapWidget t
   = MapWidget {
       _mapWidgetViewChanged :: Event t View
-    , _mapWidgetLayers      :: PropertyObj t "layers" (LayerSet t PropertyObj)
+    , _mapWidgetLayers      :: PropertyObj t "layers" (LayerSet (JSLayer t))
     }
 makeFields ''MapWidget
 
@@ -170,12 +170,12 @@ mkView View{ _viewCenter     = c
   liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, resolution:`rs});|]
 
 
-instance HasNamedProperty JSMap "layers" (LayerSet t Property) (LayerSet t PropertyObj) t
+instance HasNamedProperty JSMap "layers" (LayerSet (Layer t)) (LayerSet (JSLayer t)) t
   where
     initProperty m (Property ls e) = do
-      (jsL, Group _ lg) <- mkLayer (0, group ls)
+      jsL <- mkLayer (0, group ls)
       liftIO [jsu_|`m.setLayerGroup(`jsL);|]
-      PropertyObj <$> holdDyn lg never <*> pure (const (return ()))
+      PropertyObj <$> holdDyn (jsL^?!layers) never <*> pure (const (return ()))
 
 -- CSS
 --
