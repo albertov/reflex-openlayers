@@ -20,7 +20,7 @@ main = mainWidgetWithCss olCss $ mdo
     & view  .~ dynView
     & layers  .~ property (fromList initialLayers)
 
-  el "ul" $ listWithKey (value (mapWidget^?!layers)) layerWidget
+  el "ul" $ list (value (mapWidget^?!layers)) layerWidget
 
   dynView <- dtdd "view" $ mdo
     dynView <- foldDyn ($) initialView $ mergeWith(.) [
@@ -84,10 +84,9 @@ initialView = def & center .~ Coordinates (-10997148) 4569099
 
 layerWidget
   :: MonadWidget t m
-  => Int
-  -> Dynamic t (JSLayer t)
+  => Dynamic t (JSLayer t)
   -> m (Event t ())
-layerWidget key layer = el "li" $ do
+layerWidget layer = el "li" $ do
   curLayer <- sample (current layer)
 
   el "label" $ do

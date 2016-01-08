@@ -181,11 +181,8 @@ tile = Tile def
 group :: Reflex t => LayerSet (Layer t) -> Layer t
 group = Group def
 
-mkLayer
-  :: MonadWidget t m
-  => (Int, Layer t)
-  -> m (JSLayer t)
-mkLayer (key,l) =
+mkLayer :: MonadWidget t m => Layer t -> m (JSLayer t)
+mkLayer l =
   case l of
     Image{_layerImageSource} -> do
       s <- mkSource _layerImageSource
@@ -201,18 +198,18 @@ mkLayer (key,l) =
       return $ r {_jSLayerBase=b}
     Group{_layerLayers} -> do
       ls <- forM (M.toAscList _layerLayers) $ \(ix, l) -> do
-        jsL <- mkLayer (ix,l)
+        jsL <- mkLayer l
         return (ix, jsL)
       jsLs <- liftIO (toJSVal (map snd ls))
       j <- liftIO [jsu|$r=new ol.layer.Group({layers:`jsLs});|]
       let r = JSGroup undefined (M.fromList ls) j
       b <- updateBase r (l^.base)
       return $ r {_jSLayerBase=b}
-
-updateBase r b =
-  LayerBase <$> initProperty r (b^.opacity)
-            <*> initProperty r (b^.visible)
-            <*> initProperty r (b^.zIndex)
-            <*> initProperty r (b^.extent)
-            <*> initProperty r (b^.minResolution)
-            <*> initProperty r (b^.maxResolution)
+  where
+    updateBase r b =
+      LayerBase <$> initProperty r (b^.opacity)
+                <*> initProperty r (b^.visible)
+                <*> initProperty r (b^.zIndex)
+                <*> initProperty r (b^.extent)
+                <*> initProperty r (b^.minResolution)
+                <*> initProperty r (b^.maxResolution)

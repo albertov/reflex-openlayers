@@ -23,7 +23,6 @@ module Reflex.OpenLayers.Util (
   , updateProperty
   , dynInitialize
   , dynInitializeWith
-  , setStableName
   ) where
 
 import Reflex.OpenLayers.Event
@@ -38,6 +37,7 @@ import Data.Proxy
 
 import Control.Monad (forM_, when, void, (>=>))
 import Control.Monad.Ref (MonadRef(readRef), Ref)
+import Control.Exception (finally)
 import Control.Lens
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import qualified Data.Map as M
@@ -53,16 +53,6 @@ import Unsafe.Coerce (unsafeCoerce)
 import System.Mem.StableName
 
 
-fastEq :: JSVal -> a ->  Bool
-fastEq j o = unsafePerformIO $ do
-  sName <- makeStableName o
-  let o2 = unsafeCoerce sName :: JSVal
-  [jsu|$r=h$eqStableName(`o2, `j['h$sName']);|]
-
-setStableName :: MonadIO m => JSVal -> a -> m ()
-setStableName j
-  = liftIO . (makeStableName >=> \n -> let !n2 = unsafeCoerce n :: JSVal
-                                       in [jsu_|`j['h$sName']=`n2;|])
 
 instance PToJSVal a => PToJSVal (M.Map String a) where
   pToJSVal m = unsafePerformIO $ do
@@ -147,18 +137,24 @@ class (KnownSymbol n, PToJSVal o)
   initProperty o' (Property v e) = do
     let name = symbolVal (Proxy :: Proxy n)
         o    = pToJSVal o'
-    (eEmit, ref) <- newEventWithTriggerRef
-    emit <- fmap current (holdDyn True eEmit)
-    postGui <- askPostGui
-    runWithActions <- askRunWithActions
-    let update v2 = do
-          mT <- readRef ref
-          maybe (return ()) (\t -> postGui $ runWithActions [t :=> False]) mT
-          [jsu_|if(`v2!==null) {`o.set(`name, `v2)};|] -- FIXME
-          maybe (return ()) (\t -> postGui $ runWithActions [t :=> True]) mT
+    (emit, suppress) <- mkSuppressor
+    let update v2
+          = suppress [jsu_|if(`v2!==null) {`o.set(`name, `v2)};|] -- FIXME
     e' <- wrapOLEvent_ ("change:"++name) o [jsu|`o.get(`name);|]
     r <- PropertyObj <$> holdDyn v (leftmost [e, gate emit e'])
                      <*> pure update
     liftIO $ update v
     updateProperty r e
     return r
+
+mkSuppressor
+  :: MonadWidget t m
+  => m (Behavior t Bool, IO () -> IO ())
+mkSuppressor = do
+  (eEmit, r) <- newEventWithTriggerRef
+  emit <- hold True eEmit
+  postGui <- askPostGui
+  runWithActions <- askRunWithActions
+  let setEmit v = mapM_ (\t -> postGui $ runWithActions [t:=>v]) =<< readRef r
+      suppress x = setEmit False >> x `finally` setEmit True
+  return (emit, suppress)

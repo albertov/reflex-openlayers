@@ -44,7 +44,7 @@ import Reflex.OpenLayers.Source
 import Reflex.OpenLayers.Util
 import Reflex.OpenLayers.Event
 
-import Reflex.Host.Class (newEventWithTrigger, newEventWithTriggerRef)
+import Reflex.Host.Class (newEventWithTrigger)
 import Reflex
 import Reflex.Dom
 
@@ -173,7 +173,7 @@ mkView View{ _viewCenter     = c
 instance HasNamedProperty JSMap "layers" (LayerSet (Layer t)) (LayerSet (JSLayer t)) t
   where
     initProperty m (Property ls e) = do
-      jsL <- mkLayer (0, group ls)
+      jsL <- mkLayer (group ls)
       liftIO [jsu_|`m.setLayerGroup(`jsL);|]
       PropertyObj <$> holdDyn (jsL^?!layers) never <*> pure (const (return ()))
 

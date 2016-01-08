@@ -182,7 +182,6 @@ mkSource s = do
                                      , operation:`cb
                                      , threads: 0
                                      , operationType: `typ});|]
-  setStableName r s
   return r
 
 makeFields ''Pixel
