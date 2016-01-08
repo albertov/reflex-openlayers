@@ -17,10 +17,10 @@ import Safe (readMay)
 main :: IO ()
 main = mainWidgetWithCss olCss $ mdo
   mapWidget <- olMap $ def
-    & view  .~ dynView
-    & layers  .~ property (fromList initialLayers)
+    & view    .~ dynView
+    & layers  .~ fromList initialLayers
 
-  el "ul" $ list (value (mapWidget^?!layers)) layerWidget
+  el "ul" $ list (mapWidget^?!layers) layerWidget
 
   dynView <- dtdd "view" $ mdo
     dynView <- foldDyn ($) initialView $ mergeWith(.) [

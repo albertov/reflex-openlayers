@@ -27,6 +27,7 @@ module Reflex.OpenLayers (
   , HasCenter (..)
   , HasRotation (..)
   , HasLayers (..)
+  , HasSetLayers (..)
   , HasViewChanged (..)
   , HasInitialValue (..)
   , olMap
@@ -48,7 +49,7 @@ import Reflex.Host.Class (newEventWithTrigger)
 import Reflex
 import Reflex.Dom
 
-import Control.Lens (lens, makeFields, (^.), (^?), (^?!))
+import Control.Lens (Lens', lens, to, makeFields, (^.), (^?), (^?!))
 import Control.Monad (liftM, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.ByteString (ByteString)
@@ -114,13 +115,22 @@ data Map t
   = Map {
       _map_attributes :: Dynamic t (M.Map String String)
     , _mapView        :: Dynamic t View
-    , _mapLayers      :: Property t "layers" (LayerSet (Layer t))
+    , _mapLayersProp  :: Property t "layers" (LayerSet (Layer t))
     }
 makeFields ''Map
 
 newtype JSMap = JSMap JSVal
   deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
 instance IsJSVal JSMap
+
+instance Reflex t => HasLayers (Map t) (LayerSet (Layer t)) where
+  layers = layersProp . initialValue
+
+class HasSetLayers o a | o->a where
+  setLayers :: Lens' o a
+
+instance Reflex t => HasSetLayers (Map t) (Event t (LayerSet (Layer t))) where
+  setLayers = layersProp . setValue
 
 instance HasAttributes (Map t) where
   type Attrs (Map t) = Dynamic t (M.Map String String)
@@ -130,15 +140,18 @@ instance Reflex t => Default (Map t) where
   def = Map {
         _map_attributes  = constDyn mempty
       , _mapView         = constDyn def
-      , _mapLayers       = def
+      , _mapLayersProp   = def
     }
 
 data MapWidget t
   = MapWidget {
       _mapWidgetViewChanged :: Event t View
-    , _mapWidgetLayers      :: PropertyObj t "layers" (LayerSet (JSLayer t))
+    , _mapWidgetLayersProp  :: PropertyObj t "layers" (LayerSet (JSLayer t))
     }
 makeFields ''MapWidget
+
+instance Reflex t => HasLayers (MapWidget t) (Dynamic t (LayerSet (JSLayer t))) where
+  layers = layersProp . lens value (\p v -> p {_propertyObjValue = v})
 
 olMap :: MonadWidget t m => Map t -> m (MapWidget t)
 olMap cfg = do
@@ -159,7 +172,7 @@ olMap cfg = do
     return (liftIO unsubscribe)
 
   MapWidget <$> pure eViewChanged
-            <*> initProperty m (cfg^?!layers)
+            <*> initProperty m (cfg^?!layersProp)
 
 
 mkView :: MonadIO m => View -> m JSVal
