@@ -20,7 +20,6 @@ module Reflex.OpenLayers.Util (
   , Property (..)
   , PropertyObj (..)
   , property
-  , updateProperty
   , dynInitialize
   , dynInitializeWith
   ) where
@@ -95,6 +94,11 @@ data Property t (n::Symbol) a
     }
 makeLenses ''Property
 
+newtype PropertyObj t (n::Symbol) a = PropertyObj (Dynamic t a)
+
+instance Reflex t => HasValue (PropertyObj t n a) where
+  type Value (PropertyObj t n a) = Dynamic t a
+  value (PropertyObj a) = a
 
 class HasInitialValue o a | o->a where
   initialValue :: Lens' o a
@@ -113,23 +117,9 @@ instance (Reflex t, Default a) => Default (Property t n a) where
   def = Property def never
 
 
-data PropertyObj t (n::Symbol) a
-  = PropertyObj {
-      _propertyObjValue  :: !(Dynamic t a)
-    , _propertyObjUpdate :: !(a -> IO ())
-    }
-
-updateProperty :: MonadWidget t m => PropertyObj t n a -> Event t a -> m ()
-updateProperty (PropertyObj _ act) = performEvent_ . fmap (liftIO . act)
-
-instance Reflex t => HasValue (PropertyObj t n a) where
-  type Value (PropertyObj t n a) = Dynamic t a
-  value = _propertyObjValue
-
 class (KnownSymbol n, PToJSVal o)
-  => HasNamedProperty o n a b t | o n t->a, a->b, b->a where
-  initProperty :: MonadWidget t m
-               => o -> Property t n a -> m (PropertyObj t n b)
+  => HasNamedProperty o n a t | o n t->a where
+  initProperty :: MonadWidget t m => o -> Property t n a -> m (PropertyObj t n a)
 
   default initProperty
     :: (MonadWidget t m, PToJSVal a, PFromJSVal a)
@@ -141,11 +131,9 @@ class (KnownSymbol n, PToJSVal o)
     let update v2
           = suppress [jsu_|if(`v2!==null) {`o.set(`name, `v2)};|] -- FIXME
     e' <- wrapOLEvent_ ("change:"++name) o [jsu|`o.get(`name);|]
-    r <- PropertyObj <$> holdDyn v (leftmost [e, gate emit e'])
-                     <*> pure update
     liftIO $ update v
-    updateProperty r e
-    return r
+    performEvent_ $ fmap (liftIO . update) e
+    fmap PropertyObj $ holdDyn v (leftmost [e, gate emit e'])
 
 mkSuppressor
   :: MonadWidget t m

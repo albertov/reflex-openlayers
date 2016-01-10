@@ -33,7 +33,6 @@ module Reflex.OpenLayers (
   , olMap
   , olCss
   , property
-  , updateProperty
 
   , module Reflex.OpenLayers.Layer
   , module Reflex.OpenLayers.Source
@@ -115,7 +114,7 @@ data Map t
   = Map {
       _map_attributes :: Dynamic t (M.Map String String)
     , _mapView        :: Dynamic t View
-    , _mapLayersProp  :: Property t "layers" (LayerSet (Layer t))
+    , _mapLayersProp  :: Property t "layers" (LayerSet (JSLayer t))
     }
 makeFields ''Map
 
@@ -123,13 +122,13 @@ newtype JSMap = JSMap JSVal
   deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
 instance IsJSVal JSMap
 
-instance Reflex t => HasLayers (Map t) (LayerSet (Layer t)) where
+instance Reflex t => HasLayers (Map t) (LayerSet (JSLayer t)) where
   layers = layersProp . initialValue
 
 class HasSetLayers o a | o->a where
   setLayers :: Lens' o a
 
-instance Reflex t => HasSetLayers (Map t) (Event t (LayerSet (Layer t))) where
+instance Reflex t => HasSetLayers (Map t) (Event t (LayerSet (JSLayer t))) where
   setLayers = layersProp . setValue
 
 instance HasAttributes (Map t) where
@@ -151,7 +150,7 @@ data MapWidget t
 makeFields ''MapWidget
 
 instance Reflex t => HasLayers (MapWidget t) (Dynamic t (LayerSet (JSLayer t))) where
-  layers = layersProp . lens value (\p v -> p {_propertyObjValue = v})
+  layers = layersProp . lens value (const PropertyObj)
 
 olMap :: MonadWidget t m => Map t -> m (MapWidget t)
 olMap cfg = do
@@ -183,12 +182,16 @@ mkView View{ _viewCenter     = c
   liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, resolution:`rs});|]
 
 
-instance HasNamedProperty JSMap "layers" (LayerSet (Layer t)) (LayerSet (JSLayer t)) t
+instance HasNamedProperty JSMap "layers" (LayerSet (JSLayer t)) t
   where
     initProperty m (Property ls e) = do
       jsL <- mkLayer (group ls)
       liftIO [jsu_|`m.setLayerGroup(`jsL);|]
-      PropertyObj <$> holdDyn (jsL^?!layers) never <*> pure (const (return ()))
+      let update lm = do
+            ls <- toJSVal (M.elems lm)
+            [jsu_|`m.getLayerGroup().setLayers(new ol.Collection(`ls));|]
+      performEvent_ $ fmap (liftIO . update) e
+      PropertyObj <$> holdDyn (jsL^?!layers) e
 
 -- CSS
 --

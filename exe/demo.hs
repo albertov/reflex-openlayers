@@ -8,19 +8,66 @@ import Reflex.Dom.Contrib.Widgets.Common
 import Reflex.Dom.Contrib.Widgets.BoundedList (mkHiding)
 import Reflex.OpenLayers
 
+import Data.Dependent.Sum (DSum (..))
+import qualified Data.Dependent.Map as DMap
+
 import Control.Monad
 import Control.Lens ((^.), (^?), (^?!), over, views)
 import qualified Data.Map as M
 import Data.List (foldl')
 import Safe (readMay)
 
+data Item
+
+{-
+main :: IO ()
+main = mainWidget $ el "ul" $ mdo
+  items <- fmap M.fromList $ forM (M.toList initialConfigs) $ \(i,c) -> do
+    set <- switchPromptly never (fmap (change . (M.! i)) $ updated litems)
+    w <- htmlTextInput "text" $ c
+      & widgetConfig_setValue .~ set
+    return (i,w)
+
+  litems <- list (constDyn items) itemWidget
+  return ()
+  where
+    initialConfigs = M.fromList [
+          (1, def $ widgetConfig_initialValue .~ "foo")
+        , (2, def $ widgetConfig_initialValue .~ "bar")
+        ]
+
+itemWidget :: MonadWidget t m => Dynamic t (HtmlWidget t String) -> m (HtmlWidget t String)
+itemWidget s = do
+  curItem <- sample (current s)
+  curValue <- sample (current (value curItem))
+  htmlTextInput "text" $ def
+    & widgetConfig_initialValue .~ curValue
+    & widgetConfig_setValue     .~ change curItem
+-}
+
+
 main :: IO ()
 main = mainWidgetWithCss olCss $ mdo
-  mapWidget <- olMap $ def
-    & view    .~ dynView
-    & layers  .~ fromList initialLayers
+  iLayers <- fmap M.fromList $ forM (M.toList initialLayers) $ \(i,l) -> do
+    setOpacity <- switchPromptly (l^.opacity.setValue) $
+      fmap (flip select Opacity . snd) $
+      fmapMaybe (M.lookup i) (updated layerList)
+    jsL <- mkLayer (l & opacity.setValue .~ setOpacity)
+    return (i, jsL)
 
-  el "ul" $ list (mapWidget^?!layers) layerWidget
+  remover <- mapDyn ( mergeWith (.)
+                    . map (\(k,(e,_)) -> fmap (const (M.delete k)) e)
+                    . M.toList
+                    ) layerList
+  dynLayers <- foldDyn ($) iLayers (switchPromptlyDyn remover)
+
+  mapWidget <- olMap $ def
+    & view      .~ dynView
+    & layers    .~ iLayers
+    & setLayers .~ updated dynLayers
+
+  layerList <- el "ul" $ list (mapWidget^?!layers) layerWidget
+
 
   dynView <- dtdd "view" $ mdo
     dynView <- foldDyn ($) initialView $ mergeWith(.) [
@@ -72,7 +119,7 @@ main = mainWidgetWithCss olCss $ mdo
     return dynView
   return ()
 
-initialLayers =
+initialLayers = fromList
   [ tile $ mapQuest Satellite
   , tile $
       tileWMS
@@ -85,19 +132,19 @@ initialView = def & center .~ Coordinates (-10997148) 4569099
 layerWidget
   :: MonadWidget t m
   => Dynamic t (JSLayer t)
-  -> m (Event t ())
+  -> m (Event t (), EventSelector t LayerProperty)
 layerWidget layer = el "li" $ do
   curLayer <- sample (current layer)
 
-  el "label" $ do
+  eVisible <- el "label" $ do
     let dynValue = value (curLayer^.visible)
     curValue <- sample (current dynValue)
     input <- checkbox curValue $ def
       & setValue .~ updated dynValue
     text "Visible?"
-    updateProperty (curLayer^.visible) (_checkbox_change input)
+    return $ fmap (DMap.singleton Visible) $ _checkbox_change input
 
-  el "label" $ do
+  eOpacity <- el "label" $ do
     text "Opacity"
     let dynValue = value (curLayer^.opacity)
     curValue <- sample (current dynValue)
@@ -105,18 +152,16 @@ layerWidget layer = el "li" $ do
       & widgetConfig_initialValue .~ show curValue
       & setValue .~ fmap show (updated dynValue)
       & attributes .~ constDyn ("step" =: "0.05")
-    updateProperty (curLayer^.opacity) $
-      fmapMaybe readMay (change input)
+    return $ fmap (DMap.singleton Opacity) $ fmapMaybe readMay (change input)
 
-  el "label" $ do
+  eZIndex <- el "label" $ do
     text "ZIndex"
     let dynValue = value (curLayer^.zIndex)
     curValue <- sample (current dynValue)
     input <- htmlTextInput "number" $ def
       & widgetConfig_initialValue .~ show curValue
       & setValue .~ fmap show (updated dynValue)
-    updateProperty (curLayer^.zIndex) $
-      fmapMaybe readMay (change input)
+    return $ fmap (DMap.singleton ZIndex) $ fmapMaybe readMay (change input)
 
   {-
   changeSource <- case curLayer of
@@ -128,9 +173,8 @@ layerWidget layer = el "li" $ do
       return $ fmap (\v -> Just . (tileSource .~ v)) eSource
     _ -> return never
   -}
-
-
-  button "delete"
+  eDelete <- button "delete"
+  return (eDelete, fan (mergeWith DMap.union [eVisible, eOpacity, eZIndex]))
 
 sourceWidget
   :: MonadWidget t m

@@ -19,6 +19,7 @@ module Reflex.OpenLayers.Layer (
   , Extent (..)
   , Opacity
   , LayerSet
+  , LayerProperty (..)
   , image
   , tile
   , group
@@ -46,6 +47,9 @@ import Reflex
 import Reflex.Dom
 
 import Data.Default (Default(def))
+import Data.GADT.Compare.TH
+import qualified Data.Dependent.Map as DMap
+import Data.Dependent.Sum (DSum (..))
 import qualified Data.Map as M
 import Data.Monoid
 import Data.Maybe (fromMaybe)
@@ -98,6 +102,14 @@ instance Reflex t => Default (LayerBase t Property) where
 
 type LayerSet = M.Map Int
 
+data LayerProperty a where
+  Opacity :: LayerProperty Opacity
+  Visible :: LayerProperty Bool
+  ZIndex  :: LayerProperty Int
+deriveGEq ''LayerProperty
+deriveGCompare ''LayerProperty
+
+
 fromList :: [a] -> LayerSet a
 fromList = M.fromList . zip [0..]
 
@@ -133,7 +145,7 @@ data Layer t
           , _layerTileSource :: Source Raster Tile t
           }
   | Group { _layerBase   :: LayerBase t Property
-          , _layerLayers :: LayerSet (Layer t)
+          , _layerLayers :: LayerSet (JSLayer t)
           }
 makeFields ''Layer
 
@@ -165,12 +177,12 @@ instance HasMaxResolution (JSLayer t) (PropertyObj t "maxResolution" (Maybe Doub
   maxResolution = base . maxResolution
 
 
-instance HasNamedProperty (JSLayer t) "opacity" Opacity Opacity t
-instance HasNamedProperty (JSLayer t) "visible" Bool Bool t
-instance HasNamedProperty (JSLayer t) "zIndex" Int Int t
-instance HasNamedProperty (JSLayer t) "extent" (Maybe Extent) (Maybe Extent) t
-instance HasNamedProperty (JSLayer t) "maxResolution" (Maybe Double) (Maybe Double) t
-instance HasNamedProperty (JSLayer t) "minResolution" (Maybe Double) (Maybe Double) t
+instance HasNamedProperty (JSLayer t) "opacity" Opacity t
+instance HasNamedProperty (JSLayer t) "visible" Bool t
+instance HasNamedProperty (JSLayer t) "zIndex" Int t
+instance HasNamedProperty (JSLayer t) "extent" (Maybe Extent) t
+instance HasNamedProperty (JSLayer t) "maxResolution" (Maybe Double) t
+instance HasNamedProperty (JSLayer t) "minResolution" (Maybe Double) t
 
 image :: Reflex t => Source Raster Image t -> Layer t
 image = Image def
@@ -178,7 +190,7 @@ image = Image def
 tile :: Reflex t => Source Raster Tile t -> Layer t
 tile = Tile def
 
-group :: Reflex t => LayerSet (Layer t) -> Layer t
+group :: Reflex t => LayerSet (JSLayer t) -> Layer t
 group = Group def
 
 mkLayer :: MonadWidget t m => Layer t -> m (JSLayer t)
@@ -197,12 +209,9 @@ mkLayer l =
       b <- updateBase r (l^.base)
       return $ r {_jSLayerBase=b}
     Group{_layerLayers} -> do
-      ls <- forM (M.toAscList _layerLayers) $ \(ix, l) -> do
-        jsL <- mkLayer l
-        return (ix, jsL)
-      jsLs <- liftIO (toJSVal (map snd ls))
+      jsLs <- liftIO (toJSVal (M.elems _layerLayers))
       j <- liftIO [jsu|$r=new ol.layer.Group({layers:`jsLs});|]
-      let r = JSGroup undefined (M.fromList ls) j
+      let r = JSGroup undefined _layerLayers j
       b <- updateBase r (l^.base)
       return $ r {_jSLayerBase=b}
   where

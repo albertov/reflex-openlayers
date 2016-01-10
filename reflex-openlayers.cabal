@@ -27,6 +27,8 @@ library
     file-embed,
     lens,
     dependent-sum,
+    dependent-map,
+    dependent-sum-template,
     bytestring
   exposed-modules:
       Reflex.OpenLayers
@@ -50,6 +52,8 @@ executable reflex-openlayers-demo
     reflex-dom,
     reflex-dom-contrib,
     data-default,
+    dependent-sum,
+    dependent-map,
     reflex-openlayers,
     containers,
     safe
