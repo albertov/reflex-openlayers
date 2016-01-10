@@ -81,12 +81,12 @@ instance PFromJSVal Extent where
 --
 
 data LayerBase t p = LayerBase {
-      _layerBaseOpacity       :: p t "opacity" Opacity
-    , _layerBaseVisible       :: p t "visible" Bool
-    , _layerBaseZIndex        :: p t "zIndex" Int
-    , _layerBaseExtent        :: p t "extent" (Maybe Extent)
-    , _layerBaseMinResolution :: p t "minResolution" (Maybe Double)
-    , _layerBaseMaxResolution :: p t "maxResolution" (Maybe Double)
+      _layerBaseOpacity       :: p t Opacity
+    , _layerBaseVisible       :: p t Bool
+    , _layerBaseZIndex        :: p t Int
+    , _layerBaseExtent        :: p t (Maybe Extent)
+    , _layerBaseMinResolution :: p t (Maybe Double)
+    , _layerBaseMaxResolution :: p t (Maybe Double)
     }
 makeFields ''LayerBase
 
@@ -119,16 +119,13 @@ pushLayer v m = case M.maxViewWithKey m of
   Just ((k, _), _) -> M.insert (succ k) v m
 
 data JSLayer t
-  = JSImage { _jSLayerBase   :: LayerBase t PropertyObj
-            , _jSLayerImageSource :: Source Raster Image t
+  = JSImage { _jSLayerBase   :: LayerBase t Dynamic
             , _jSLayerVal  :: JSVal
             }
-  | JSTile  { _jSLayerBase   :: LayerBase t PropertyObj
-            , _jSLayerTileSource :: Source Raster Tile t
+  | JSTile  { _jSLayerBase   :: LayerBase t Dynamic
             , _jSLayerVal  :: JSVal
             }
-  | JSGroup { _jSLayerBase   :: LayerBase t PropertyObj
-            , _jSLayerLayers :: LayerSet (JSLayer t)
+  | JSGroup { _jSLayerBase   :: LayerBase t Dynamic
             , _jSLayerVal  :: JSVal
             }
 makeFields ''JSLayer
@@ -145,44 +142,38 @@ data Layer t
           , _layerTileSource :: Source Raster Tile t
           }
   | Group { _layerBase   :: LayerBase t Property
-          , _layerLayers :: LayerSet (JSLayer t)
+          , _layerLayers :: Dynamic t (LayerSet (JSLayer t))
           }
 makeFields ''Layer
 
-instance HasOpacity (Layer t) (Property t "opacity" Opacity) where
+instance HasOpacity (Layer t) (Property t Opacity) where
   opacity = base . opacity
-instance HasVisible (Layer t) (Property t "visible" Bool) where
+instance HasVisible (Layer t) (Property t Bool) where
   visible = base . visible
-instance HasZIndex (Layer t) (Property t "zIndex" Int) where
+instance HasZIndex (Layer t) (Property t Int) where
   zIndex = base . zIndex
-instance HasExtent (Layer t) (Property t "extent" (Maybe Extent)) where
+instance HasExtent (Layer t) (Property t (Maybe Extent)) where
   extent = base . extent
-instance HasMinResolution (Layer t) (Property t "minResolution" (Maybe Double)) where
+instance HasMinResolution (Layer t) (Property t (Maybe Double)) where
   minResolution = base . minResolution
-instance HasMaxResolution (Layer t) (Property t "maxResolution" (Maybe Double)) where
+instance HasMaxResolution (Layer t) (Property t (Maybe Double)) where
   maxResolution = base . maxResolution
 
 
-instance HasOpacity (JSLayer t) (PropertyObj t "opacity" Opacity) where
+instance HasOpacity (JSLayer t) (Dynamic t Opacity) where
   opacity = base . opacity
-instance HasVisible (JSLayer t) (PropertyObj t "visible" Bool) where
+instance HasVisible (JSLayer t) (Dynamic t Bool) where
   visible = base . visible
-instance HasZIndex (JSLayer t) (PropertyObj t "zIndex" Int) where
+instance HasZIndex (JSLayer t) (Dynamic t Int) where
   zIndex = base . zIndex
-instance HasExtent (JSLayer t) (PropertyObj t "extent" (Maybe Extent)) where
+instance HasExtent (JSLayer t) (Dynamic t (Maybe Extent)) where
   extent = base . extent
-instance HasMinResolution (JSLayer t) (PropertyObj t "minResolution" (Maybe Double)) where
+instance HasMinResolution (JSLayer t) (Dynamic t (Maybe Double)) where
   minResolution = base . minResolution
-instance HasMaxResolution (JSLayer t) (PropertyObj t "maxResolution" (Maybe Double)) where
+instance HasMaxResolution (JSLayer t) (Dynamic t (Maybe Double)) where
   maxResolution = base . maxResolution
 
 
-instance HasNamedProperty (JSLayer t) "opacity" Opacity t
-instance HasNamedProperty (JSLayer t) "visible" Bool t
-instance HasNamedProperty (JSLayer t) "zIndex" Int t
-instance HasNamedProperty (JSLayer t) "extent" (Maybe Extent) t
-instance HasNamedProperty (JSLayer t) "maxResolution" (Maybe Double) t
-instance HasNamedProperty (JSLayer t) "minResolution" (Maybe Double) t
 
 image :: Reflex t => Source Raster Image t -> Layer t
 image = Image def
@@ -190,7 +181,7 @@ image = Image def
 tile :: Reflex t => Source Raster Tile t -> Layer t
 tile = Tile def
 
-group :: Reflex t => LayerSet (JSLayer t) -> Layer t
+group :: Reflex t => Dynamic t (LayerSet (JSLayer t)) -> Layer t
 group = Group def
 
 mkLayer :: MonadWidget t m => Layer t -> m (JSLayer t)
@@ -199,26 +190,28 @@ mkLayer l =
     Image{_layerImageSource} -> do
       s <- mkSource _layerImageSource
       j <- liftIO [jsu|$r=new ol.layer.Image({source:`s});|]
-      let r = JSImage undefined _layerImageSource j
+      let r = JSImage undefined j
       b <- updateBase r (l^.base)
       return $ r {_jSLayerBase=b}
     Tile{_layerTileSource} -> do
       s <- mkSource _layerTileSource
       j <- liftIO [jsu|$r=new ol.layer.Tile({source: `s});|]
-      let r = JSTile undefined _layerTileSource j
+      let r = JSTile undefined j
       b <- updateBase r (l^.base)
       return $ r {_jSLayerBase=b}
     Group{_layerLayers} -> do
-      jsLs <- liftIO (toJSVal (M.elems _layerLayers))
-      j <- liftIO [jsu|$r=new ol.layer.Group({layers:`jsLs});|]
-      let r = JSGroup undefined _layerLayers j
+      j <- liftIO [jsu|$r=new ol.layer.Group({});|]
+      dynInitialize _layerLayers $ \ls -> liftIO $ do
+        jsLs <- liftIO (toJSVal (M.elems ls))
+        [jsu_|`j.setLayers(new ol.Collection(`jsLs));|]
+      let r = JSGroup undefined j
       b <- updateBase r (l^.base)
       return $ r {_jSLayerBase=b}
   where
     updateBase r b =
-      LayerBase <$> initProperty r (b^.opacity)
-                <*> initProperty r (b^.visible)
-                <*> initProperty r (b^.zIndex)
-                <*> initProperty r (b^.extent)
-                <*> initProperty r (b^.minResolution)
-                <*> initProperty r (b^.maxResolution)
+      LayerBase <$> initProperty "opacity" r (b^.opacity)
+                <*> initProperty "visible" r (b^.visible)
+                <*> initProperty "zIndex" r (b^.zIndex)
+                <*> initProperty "extent" r (b^.extent)
+                <*> initProperty "minResolution" r (b^.minResolution)
+                <*> initProperty "maxResolution" r (b^.maxResolution)

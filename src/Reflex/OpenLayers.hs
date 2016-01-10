@@ -17,7 +17,6 @@ module Reflex.OpenLayers (
   , MapWidget
   , View
   , Property(..)
-  , PropertyObj(..)
   , Coordinates (..)
   , HasAttributes(..)
   , HasX(..)
@@ -27,7 +26,6 @@ module Reflex.OpenLayers (
   , HasCenter (..)
   , HasRotation (..)
   , HasLayers (..)
-  , HasSetLayers (..)
   , HasViewChanged (..)
   , HasInitialValue (..)
   , olMap
@@ -114,22 +112,13 @@ data Map t
   = Map {
       _map_attributes :: Dynamic t (M.Map String String)
     , _mapView        :: Dynamic t View
-    , _mapLayersProp  :: Property t "layers" (LayerSet (JSLayer t))
+    , _mapLayers      :: Dynamic t (LayerSet (JSLayer t))
     }
 makeFields ''Map
 
 newtype JSMap = JSMap JSVal
   deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
 instance IsJSVal JSMap
-
-instance Reflex t => HasLayers (Map t) (LayerSet (JSLayer t)) where
-  layers = layersProp . initialValue
-
-class HasSetLayers o a | o->a where
-  setLayers :: Lens' o a
-
-instance Reflex t => HasSetLayers (Map t) (Event t (LayerSet (JSLayer t))) where
-  setLayers = layersProp . setValue
 
 instance HasAttributes (Map t) where
   type Attrs (Map t) = Dynamic t (M.Map String String)
@@ -139,18 +128,14 @@ instance Reflex t => Default (Map t) where
   def = Map {
         _map_attributes  = constDyn mempty
       , _mapView         = constDyn def
-      , _mapLayersProp   = def
+      , _mapLayers       = constDyn def
     }
 
 data MapWidget t
   = MapWidget {
       _mapWidgetViewChanged :: Event t View
-    , _mapWidgetLayersProp  :: PropertyObj t "layers" (LayerSet (JSLayer t))
     }
 makeFields ''MapWidget
-
-instance Reflex t => HasLayers (MapWidget t) (Dynamic t (LayerSet (JSLayer t))) where
-  layers = layersProp . lens value (const PropertyObj)
 
 olMap :: MonadWidget t m => Map t -> m (MapWidget t)
 olMap cfg = do
@@ -158,7 +143,8 @@ olMap cfg = do
               buildEmptyElement "div" (cfg^.attributes)
 
   v <- mkView def
-  m :: JSMap <- liftIO $ [jsu|$r = new ol.Map({view:`v}); window._map=$r;|]
+  g <- mkLayer (group (cfg^?!layers))
+  m :: JSMap <- liftIO $ [jsu|$r = new ol.Map({view:`v, layers:`g});|]
   getPostBuild >>=
     performEvent_ . fmap (const (liftIO ([js_|`m.setTarget(`target)|])))
 
@@ -170,8 +156,8 @@ olMap cfg = do
       postGui $ runWithActions [trig :=> v']
     return (liftIO unsubscribe)
 
-  MapWidget <$> pure eViewChanged
-            <*> initProperty m (cfg^?!layersProp)
+
+  return $ MapWidget eViewChanged
 
 
 mkView :: MonadIO m => View -> m JSVal
@@ -181,17 +167,6 @@ mkView View{ _viewCenter     = c
            } =
   liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, resolution:`rs});|]
 
-
-instance HasNamedProperty JSMap "layers" (LayerSet (JSLayer t)) t
-  where
-    initProperty m (Property ls e) = do
-      jsL <- mkLayer (group ls)
-      liftIO [jsu_|`m.setLayerGroup(`jsL);|]
-      let update lm = do
-            ls <- toJSVal (M.elems lm)
-            [jsu_|`m.getLayerGroup().setLayers(new ol.Collection(`ls));|]
-      performEvent_ $ fmap (liftIO . update) e
-      PropertyObj <$> holdDyn (jsL^?!layers) e
 
 -- CSS
 --

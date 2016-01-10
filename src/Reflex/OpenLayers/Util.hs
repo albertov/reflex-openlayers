@@ -15,11 +15,10 @@
 {-# LANGUAGE KindSignatures #-}
 
 module Reflex.OpenLayers.Util (
-    HasNamedProperty (..)
-  , HasInitialValue (..)
+    HasInitialValue (..)
   , Property (..)
-  , PropertyObj (..)
   , property
+  , initProperty
   , dynInitialize
   , dynInitializeWith
   ) where
@@ -87,53 +86,43 @@ dynInitialize
   => Dynamic t a -> (a -> WidgetHost m ()) -> m ()
 dynInitialize = dynInitializeWith return
 
-data Property t (n::Symbol) a
+data Property t a
   = Property {
       _propertyInitialValue :: a
     , _propertySetValue     :: Event t a
     }
 makeLenses ''Property
 
-newtype PropertyObj t (n::Symbol) a = PropertyObj (Dynamic t a)
-
-instance Reflex t => HasValue (PropertyObj t n a) where
-  type Value (PropertyObj t n a) = Dynamic t a
-  value (PropertyObj a) = a
 
 class HasInitialValue o a | o->a where
   initialValue :: Lens' o a
 
-instance Reflex t => HasInitialValue (Property t n a) a where
+instance Reflex t => HasInitialValue (Property t a) a where
   initialValue = propertyInitialValue
 
-instance Reflex t => HasSetValue (Property t n a) where
-  type SetValue (Property t n a) = Event t a
+instance Reflex t => HasSetValue (Property t a) where
+  type SetValue (Property t a) = Event t a
   setValue = propertySetValue
 
-property :: Reflex t => a -> Property t n a
+property :: Reflex t => a -> Property t a
 property = flip Property never
 
-instance (Reflex t, Default a) => Default (Property t n a) where
+instance (Reflex t, Default a) => Default (Property t a) where
   def = Property def never
 
 
-class (KnownSymbol n, PToJSVal o)
-  => HasNamedProperty o n a t | o n t->a where
-  initProperty :: MonadWidget t m => o -> Property t n a -> m (PropertyObj t n a)
-
-  default initProperty
-    :: (MonadWidget t m, PToJSVal a, PFromJSVal a)
-    => o -> Property t n a -> m (PropertyObj t n a)
-  initProperty o' (Property v e) = do
-    let name = symbolVal (Proxy :: Proxy n)
-        o    = pToJSVal o'
-    (emit, suppress) <- mkSuppressor
-    let update v2
-          = suppress [jsu_|if(`v2!==null) {`o.set(`name, `v2)};|] -- FIXME
-    e' <- wrapOLEvent_ ("change:"++name) o [jsu|`o.get(`name);|]
-    liftIO $ update v
-    performEvent_ $ fmap (liftIO . update) e
-    fmap PropertyObj $ holdDyn v (leftmost [e, gate emit e'])
+initProperty
+  :: (MonadWidget t m, PToJSVal o, PToJSVal a, PFromJSVal a)
+  => String -> o -> Property t a -> m (Dynamic t a)
+initProperty name o' (Property v e) = do
+  let o = pToJSVal o'
+  (emit, suppress) <- mkSuppressor
+  let update v2
+        = suppress [jsu_|if(`v2!==null) {`o.set(`name, `v2)};|] -- FIXME
+  e' <- wrapOLEvent_ ("change:"++name) o [jsu|`o.get(`name);|]
+  liftIO $ update v
+  performEvent_ $ fmap (liftIO . update) e
+  holdDyn v (leftmost [e, gate emit e'])
 
 mkSuppressor
   :: MonadWidget t m

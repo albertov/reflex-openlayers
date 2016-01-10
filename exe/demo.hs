@@ -59,14 +59,13 @@ main = mainWidgetWithCss olCss $ mdo
                     . map (\(k,(e,_)) -> fmap (const (M.delete k)) e)
                     . M.toList
                     ) layerList
-  dynLayers <- foldDyn ($) iLayers (switchPromptlyDyn remover)
+  dynLayerMap <- foldDyn ($) iLayers (switchPromptlyDyn remover)
 
   mapWidget <- olMap $ def
     & view      .~ dynView
-    & layers    .~ iLayers
-    & setLayers .~ updated dynLayers
+    & layers    .~ dynLayerMap
 
-  layerList <- el "ul" $ list (mapWidget^?!layers) layerWidget
+  layerList <- el "ul" $ list dynLayerMap layerWidget
 
 
   dynView <- dtdd "view" $ mdo
@@ -137,7 +136,7 @@ layerWidget layer = el "li" $ do
   curLayer <- sample (current layer)
 
   eVisible <- el "label" $ do
-    let dynValue = value (curLayer^.visible)
+    let dynValue = curLayer^.visible
     curValue <- sample (current dynValue)
     input <- checkbox curValue $ def
       & setValue .~ updated dynValue
@@ -146,7 +145,7 @@ layerWidget layer = el "li" $ do
 
   eOpacity <- el "label" $ do
     text "Opacity"
-    let dynValue = value (curLayer^.opacity)
+    let dynValue = curLayer^.opacity
     curValue <- sample (current dynValue)
     input <- htmlTextInput "number" $ def
       & widgetConfig_initialValue .~ show curValue
@@ -156,7 +155,7 @@ layerWidget layer = el "li" $ do
 
   eZIndex <- el "label" $ do
     text "ZIndex"
-    let dynValue = value (curLayer^.zIndex)
+    let dynValue = curLayer^.zIndex
     curValue <- sample (current dynValue)
     input <- htmlTextInput "number" $ def
       & widgetConfig_initialValue .~ show curValue
