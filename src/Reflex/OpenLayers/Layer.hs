@@ -19,7 +19,6 @@ module Reflex.OpenLayers.Layer (
   , Extent (..)
   , Opacity
   , LayerSet
-  , LayerProperty (..)
   , image
   , tile
   , group
@@ -47,9 +46,6 @@ import Reflex
 import Reflex.Dom
 
 import Data.Default (Default(def))
-import Data.GADT.Compare.TH
-import qualified Data.Dependent.Map as DMap
-import Data.Dependent.Sum (DSum (..))
 import qualified Data.Map as M
 import Data.Monoid
 import Data.Maybe (fromMaybe)
@@ -101,14 +97,6 @@ instance Reflex t => Default (LayerBase t Property) where
      }
 
 type LayerSet = M.Map Int
-
-data LayerProperty a where
-  Opacity :: LayerProperty Opacity
-  Visible :: LayerProperty Bool
-  ZIndex  :: LayerProperty Int
-deriveGEq ''LayerProperty
-deriveGCompare ''LayerProperty
-
 
 fromList :: [a] -> LayerSet a
 fromList = M.fromList . zip [0..]
@@ -185,7 +173,8 @@ group :: Reflex t => Dynamic t (LayerSet (JSLayer t)) -> Layer t
 group = Group def
 
 mkLayer :: MonadWidget t m => Layer t -> m (JSLayer t)
-mkLayer l =
+mkLayer l = do
+  liftIO $ putStrLn "mkLayer"
   case l of
     Image{_layerImageSource} -> do
       s <- mkSource _layerImageSource
