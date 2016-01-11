@@ -12,14 +12,11 @@ import Control.Monad
 import Control.Lens ((^.), (^?), (^?!), (%~))
 import qualified Data.Map as M
 import Data.List (foldl')
+import Data.Monoid ((<>))
 import Safe (readMay)
 
 main :: IO ()
 main = mainWidgetWithCss olCss $ mdo
-  remover <- mapDyn (mergeWith (.) . map fst . M.elems) layerList
-  dynLayerMap <- foldDyn ($) initialLayers (switchPromptlyDyn remover)
-  dynLayers <- mapDyn (M.map snd) layerList
-
   mapWidget <- olMap $ def
     & center.initialValue .~ Coordinates (-10997148) 4569099
     & center.setValue     .~ eCenter
@@ -27,8 +24,7 @@ main = mainWidgetWithCss olCss $ mdo
     & rotation.setValue   .~ eRotation
     & layers              .~ dynLayers
 
-  layerList <- el "ul" $ listWithKey dynLayerMap layerWidget
-
+  dynLayers <- layerListWidget (constDyn initialLayers)
 
   (eCenter, eResolution, eRotation) <- dtdd "view" $ do
     eRotation <- dtdd "rotation" $ do
@@ -72,12 +68,35 @@ main = mainWidgetWithCss olCss $ mdo
   return ()
 
 initialLayers = fromList
-  [ tile $ constDyn $ mapQuest Satellite
-  , tile $ constDyn $
+  [
+    tile $ constDyn $
       tileWMS
         "http://demo.boundlessgeo.com/geoserver/wms"
         ("LAYERS" =: "topp:states")
+  , group $ constDyn $ fromList [
+        tile $ constDyn $ tileWMS
+          "http://demo.boundlessgeo.com/geoserver/ne/wms"
+          (   "LAYERS" =: "ne:ne_10m_admin_0_countries"
+           <> "TILED" =: "true")
+      --, tile $ constDyn osm -- FIXME: does not play well with MapQuest (why!?)
+      ]
+  , tile $ constDyn $ mapQuest Satellite
+
   ]
+
+layerListWidget
+  :: MonadWidget t m
+  => Dynamic t (M.Map Int (Layer t Property))
+  -> m (Dynamic t (M.Map Int (Layer t Property)))
+layerListWidget layerMap = mdo
+  initialLayers <- sample (current layerMap)
+  remover <- mapDyn (mergeWith (.) . map fst . M.elems) layerList
+  dynLayerMap <- foldDyn ($) initialLayers $
+    leftmost [ switchPromptlyDyn remover
+             , fmap (\n -> const n) (updated layerMap)
+             ]
+  layerList <- el "ul" $ listWithKey dynLayerMap layerWidget
+  mapDyn (M.map snd) layerList
 
 
 layerWidget
@@ -124,13 +143,22 @@ layerWidget key layer = el "li" $ do
       dynSource <- holdDyn curSource eSource
       return $ tileSource .~ dynSource
     _ -> return id
+
+  eGroupLayers <- case curLayer of
+    Group{} -> do
+      dynLayers <- layerListWidget (curLayer^?!layers)
+      return $ layers .~ dynLayers
+    _ -> return id
+
   eDelete <- button "delete"
+
   return ( fmap (const (M.delete key)) eDelete
          , foldl' (&) curLayer [
                 eVisible
               , eOpacity
               , eZIndex
               , eSource
+              , eGroupLayers
               ]
          )
 

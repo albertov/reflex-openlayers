@@ -158,7 +158,7 @@ raster op = Raster op
 
 mkSource :: MonadWidget t m => Source r k t -> m JSVal
 mkSource s = do
-  liftIO $ putStrLn "mkSource" --FIXME
+  --liftIO $ putStrLn "mkSource" --FIXME
   case s of
     ImageWMS{_imageWmsUrl, _imageWmsParams} ->
       liftIO [jsu|
@@ -173,7 +173,7 @@ mkSource s = do
     MapQuest{_mapQuestLayer} ->
       liftIO [jsu|$r=new ol.source.MapQuest({layer:`_mapQuestLayer});|]
 
-    OSM{} -> liftIO [jsu|$r=new ol.source.OSM({});|]
+    OSM{} -> liftIO [jsu|$r=new ol.source.OSM();|]
 
     Raster{_rasterSources, _rasterOperation} -> do
       sources <- packSources _rasterSources

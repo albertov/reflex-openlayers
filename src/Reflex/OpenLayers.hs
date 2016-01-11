@@ -61,7 +61,7 @@ import GHCJS.DOM.Element (toElement)
 import GHCJS.DOM.Types (unElement)
 import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
-import GHCJS.Types (JSVal, IsJSVal)
+import GHCJS.Types (JSVal, IsJSVal, jsval)
 import GHCJS.Foreign.QQ
 
 --
@@ -110,6 +110,7 @@ data Map t
     }
 makeFields ''Map
 
+
 instance HasCenter (Map t) (Property t Coordinates) where
   center = view . center
 instance HasResolution (Map t) (Property t Double) where
@@ -136,8 +137,15 @@ data MapWidget t
   = MapWidget {
       _mapWidgetView   :: View t Dynamic
     , _mapWidgetLayers :: Dynamic t (LayerSet (Layer t Dynamic))
+    , _mapWidgetJsVal  :: JSMap
     }
 makeFields ''MapWidget
+
+instance PToJSVal (MapWidget t) where
+  pToJSVal = jsval . _mapWidgetJsVal
+
+instance ToJSVal (MapWidget t) where
+  toJSVal = return . pToJSVal
 
 instance HasCenter (MapWidget t) (Dynamic t Coordinates) where
   center = view . center
@@ -153,10 +161,10 @@ olMap cfg = do
 
   (jv, v) <- mkView (cfg^.view)
   (jg, g) <- mkLayer (group (cfg^?!layers))
-  m :: JSMap <- liftIO $ [jsu|$r = new ol.Map({view:`jv, layers:`jg});|]
+  m <- liftIO $ [jsu|$r = new ol.Map({view:`jv, layers:`jg}); window._map=$r;|]
   getPostBuild >>=
-    performEvent_ . fmap (const (liftIO ([js_|`m.setTarget(`target)|])))
-  return $ MapWidget v (g^?!layers)
+    performEvent_ . fmap (const (liftIO [js_|`m.setTarget(`target)|]))
+  return $ MapWidget v (g^?!layers) m
 
 
 mkView :: MonadWidget t m => View t Property -> m (JSVal, View t Dynamic)
