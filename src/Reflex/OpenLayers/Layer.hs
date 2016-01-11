@@ -179,23 +179,20 @@ mkLayer l = do
     Image{_layerImageSource} -> do
       s <- mkSource _layerImageSource
       j <- liftIO [jsu|$r=new ol.layer.Image({source:`s});|]
-      let r = JSImage undefined j
-      b <- updateBase r (l^.base)
-      return $ r {_jSLayerBase=b}
+      b <- updateBase j (l^.base)
+      return $ JSImage b j
     Tile{_layerTileSource} -> do
       s <- mkSource _layerTileSource
       j <- liftIO [jsu|$r=new ol.layer.Tile({source: `s});|]
-      let r = JSTile undefined j
-      b <- updateBase r (l^.base)
-      return $ r {_jSLayerBase=b}
+      b <- updateBase j (l^.base)
+      return $ JSTile b j
     Group{_layerLayers} -> do
       j <- liftIO [jsu|$r=new ol.layer.Group({});|]
       dynInitialize _layerLayers $ \ls -> liftIO $ do
         jsLs <- liftIO (toJSVal (M.elems ls))
         [jsu_|`j.setLayers(new ol.Collection(`jsLs));|]
-      let r = JSGroup undefined j
-      b <- updateBase r (l^.base)
-      return $ r {_jSLayerBase=b}
+      b <- updateBase j (l^.base)
+      return $ JSGroup b j
   where
     updateBase r b =
       LayerBase <$> initProperty "opacity" r (b^.opacity)
