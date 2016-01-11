@@ -72,8 +72,8 @@ main = mainWidgetWithCss olCss $ mdo
   return ()
 
 initialLayers = fromList
-  [ tile $ mapQuest Satellite
-  , tile $
+  [ tile $ constDyn $ mapQuest Satellite
+  , tile $ constDyn $
       tileWMS
         "http://demo.boundlessgeo.com/geoserver/wms"
         ("LAYERS" =: "topp:states")
@@ -112,45 +112,47 @@ layerWidget key layer = el "li" $ do
     let eChange = fmapMaybe readMay (change input)
     return $ zIndex.setValue .~ eChange
 
-{-
-  changeSource <- case curLayer of
+  eSource <- case curLayer of
     Image{} -> do
-      eSource <- sourceWidget =<< mapDyn (^?imageSource) layer
-      return $ fmap (\v -> Just . (imageSource .~ v)) eSource
+      curSource <- sample (current (curLayer^?!imageSource))
+      eSource <- sourceWidget curSource
+      dynSource <- holdDyn curSource eSource
+      return $ imageSource .~ dynSource
     Tile{} -> do
-      eSource <- sourceWidget =<< mapDyn (^?tileSource) layer
-      return $ fmap (\v -> Just . (tileSource .~ v)) eSource
-    _ -> return never
--}
+      curSource <- sample (current (curLayer^?!tileSource))
+      eSource <- sourceWidget curSource
+      dynSource <- holdDyn curSource eSource
+      return $ tileSource .~ dynSource
+    _ -> return id
   eDelete <- button "delete"
   return ( fmap (const (M.delete key)) eDelete
          , foldl' (&) curLayer [
                 eVisible
               , eOpacity
               , eZIndex
+              , eSource
               ]
          )
 
 sourceWidget
   :: MonadWidget t m
-  => Dynamic t (Maybe (Source r k t))
+  => Source r k t
   -> m (Event t (Source r k t))
-sourceWidget val = do
-  curVal <- sample (current val)
+sourceWidget curVal =
   case curVal of
-    Just (s@ImageWMS{_imageWmsUrl}) -> do
+    s@ImageWMS{_imageWmsUrl} -> do
       el "label" $ do
         text "URL"
         input <- htmlTextInput "url" $ def
           & widgetConfig_initialValue .~ _imageWmsUrl
         return $ fmap (\v -> s {_imageWmsUrl=v}) (blurOrEnter input)
-    Just (s@TileWMS{_tileWmsUrl}) -> do
+    s@TileWMS{_tileWmsUrl} -> do
       el "label" $ do
         text "URL"
         input <- htmlTextInput "url" $ def
           & widgetConfig_initialValue .~ _tileWmsUrl
         return $ fmap (\v -> s {_tileWmsUrl=v}) (blurOrEnter input)
-    Just (s@MapQuest{_mapQuestLayer}) -> do
+    s@MapQuest{_mapQuestLayer} -> do
       el "label" $ do
         text "Layer"
         input <- htmlDropdownStatic [minBound..maxBound] show id $ def

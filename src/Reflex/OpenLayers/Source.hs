@@ -158,7 +158,8 @@ raster op = Raster op
 
 mkSource :: MonadWidget t m => Source r k t -> m JSVal
 mkSource s = do
-  r <- case s of
+  liftIO $ putStrLn "mkSource" --FIXME
+  case s of
     ImageWMS{_imageWmsUrl, _imageWmsParams} ->
       liftIO [jsu|
         $r=new ol.source.ImageWMS(
@@ -184,6 +185,5 @@ mkSource s = do
                                      , operation:`cb
                                      , threads: 0
                                      , operationType: `typ});|]
-  return r
 
 makeFields ''Pixel

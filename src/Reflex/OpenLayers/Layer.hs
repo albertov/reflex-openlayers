@@ -108,10 +108,10 @@ pushLayer v m = case M.maxViewWithKey m of
 
 data Layer t p
   = Image { _layerBase   :: LayerBase t p
-          , _layerImageSource :: Source Raster Image t
+          , _layerImageSource :: Dynamic t (Source Raster Image t)
           }
   | Tile  { _layerBase   :: LayerBase t p
-          , _layerTileSource :: Source Raster Tile t
+          , _layerTileSource :: Dynamic t (Source Raster Tile t)
           }
   | Group { _layerBase   :: LayerBase t p
           , _layerLayers :: Dynamic t (LayerSet (Layer t p))
@@ -134,10 +134,10 @@ instance HasMaxResolution (Layer t p) (p t (Maybe Double)) where
 
 
 
-image :: Reflex t => Source Raster Image t -> Layer t Property
+image :: Reflex t => Dynamic t (Source Raster Image t) -> Layer t Property
 image = Image def
 
-tile :: Reflex t => Source Raster Tile t -> Layer t Property
+tile :: Reflex t => Dynamic t (Source Raster Tile t) -> Layer t Property
 tile = Tile def
 
 group
@@ -147,16 +147,18 @@ group = Group def
 
 mkLayer :: MonadWidget t m => Layer t Property -> m (JSVal, Layer t Dynamic)
 mkLayer l = do
-  liftIO $ putStrLn "mkLayer"
+  liftIO $ putStrLn "mkLayer" --FIXME
   case l of
     Image{_layerImageSource} -> do
-      s <- mkSource _layerImageSource
-      j <- liftIO [jsu|$r=new ol.layer.Image({source:`s});|]
+      j <- liftIO [jsu|$r=new ol.layer.Image({});|]
+      dynInitializeWith mkSource _layerImageSource $ \s ->
+        liftIO [jsu_|`j.setSource(`s);|]
       b <- updateBase j (l^.base)
       return (j, Image b _layerImageSource)
     Tile{_layerTileSource} -> do
-      s <- mkSource _layerTileSource
-      j <- liftIO [jsu|$r=new ol.layer.Tile({source: `s});|]
+      j <- liftIO [jsu|$r=new ol.layer.Tile({});|]
+      dynInitializeWith mkSource _layerTileSource $ \s ->
+        liftIO [jsu_|`j.setSource(`s);|]
       b <- updateBase j (l^.base)
       return (j, Tile b _layerTileSource)
     Group{_layerLayers} -> do
