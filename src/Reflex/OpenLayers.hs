@@ -16,7 +16,7 @@ module Reflex.OpenLayers (
     Map
   , MapWidget
   , View
-  , Property(..)
+  , Property
   , Coordinates (..)
   , HasAttributes(..)
   , HasX(..)
@@ -26,8 +26,8 @@ module Reflex.OpenLayers (
   , HasCenter (..)
   , HasRotation (..)
   , HasLayers (..)
-  , HasViewChanged (..)
   , HasInitialValue (..)
+  , HasSetValue (..)
   , olMap
   , olCss
   , property
@@ -83,25 +83,19 @@ instance PFromJSVal Coordinates where
 
 type Rotation    = Double
 
-data View
+data View t p
   = View {
-      _viewCenter     :: !Coordinates
-    , _viewResolution :: !Double
-    , _viewRotation   :: !Rotation
-    } deriving (Eq, Ord, Show)
-
-instance PFromJSVal View where
-  pFromJSVal v = View [js'|$r=`v.getCenter();|]
-                      [js'|$r=`v.getResolution();|]
-                      [js'|$r=`v.getRotation();|]
-
+      _viewCenter     :: !(p t Coordinates)
+    , _viewResolution :: !(p t Double)
+    , _viewRotation   :: !(p t Rotation)
+    }
 makeFields ''View
 
-instance Default View where
+instance Reflex t => Default (View t Property)where
   def = View {
-      _viewCenter     = Coordinates 0 0
-    , _viewResolution = 100000
-    , _viewRotation   = 0
+      _viewCenter     = property (Coordinates 0 0)
+    , _viewResolution = property 100000
+    , _viewRotation   = property 0
     }
 
 --
@@ -111,10 +105,17 @@ instance Default View where
 data Map t
   = Map {
       _map_attributes :: Dynamic t (M.Map String String)
-    , _mapView        :: Dynamic t View
+    , _mapView        :: View t Property
     , _mapLayers      :: Dynamic t (LayerSet (Layer t))
     }
 makeFields ''Map
+
+instance HasCenter (Map t) (Property t Coordinates) where
+  center = view . center
+instance HasResolution (Map t) (Property t Double) where
+  resolution = view . resolution
+instance HasRotation (Map t) (Property t Rotation) where
+  rotation = view . rotation
 
 newtype JSMap = JSMap JSVal
   deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
@@ -127,45 +128,43 @@ instance HasAttributes (Map t) where
 instance Reflex t => Default (Map t) where
   def = Map {
         _map_attributes  = constDyn mempty
-      , _mapView         = constDyn def
+      , _mapView         = def
       , _mapLayers       = constDyn def
     }
 
 data MapWidget t
   = MapWidget {
-      _mapWidgetViewChanged :: Event t View
+      _mapWidgetView :: View t Dynamic
     }
 makeFields ''MapWidget
+
+instance HasCenter (MapWidget t) (Dynamic t Coordinates) where
+  center = view . center
+instance HasResolution (MapWidget t) (Dynamic t Double) where
+  resolution = view . resolution
+instance HasRotation (MapWidget t) (Dynamic t Rotation) where
+  rotation = view . rotation
 
 olMap :: MonadWidget t m => Map t -> m (MapWidget t)
 olMap cfg = do
   target <- liftM (unElement . toElement . castToHTMLDivElement) $
               buildEmptyElement "div" (cfg^.attributes)
 
-  v <- mkView def
+  (jv, v) <- mkView (cfg^.view)
   g <- mkLayer (group (cfg^?!layers))
-  m :: JSMap <- liftIO $ [jsu|$r = new ol.Map({view:`v, layers:`g});|]
+  m :: JSMap <- liftIO $ [jsu|$r = new ol.Map({view:`jv, layers:`g});|]
   getPostBuild >>=
     performEvent_ . fmap (const (liftIO ([js_|`m.setTarget(`target)|])))
-
-  postGui <- askPostGui
-  runWithActions <- askRunWithActions
-  eViewChanged <- newEventWithTrigger $ \trig -> do
-    unsubscribe <- liftIO $ on_ "propertychange" v $ \(_::JSVal) -> do
-      v' <- liftIO [jsu|$r=`m.getView()|]
-      postGui $ runWithActions [trig :=> v']
-    return (liftIO unsubscribe)
+  return $ MapWidget v
 
 
-  return $ MapWidget eViewChanged
-
-
-mkView :: MonadIO m => View -> m JSVal
-mkView View{ _viewCenter     = c
-           , _viewRotation   = r
-           , _viewResolution = rs
-           } =
-  liftIO [jsu|$r = new ol.View({center:`c, rotation:`r, resolution:`rs});|]
+mkView :: MonadWidget t m => View t Property -> m (JSVal, View t Dynamic)
+mkView v = do
+  j <- liftIO [jsu|$r = new ol.View({});|]
+  jv <- View <$> initProperty "center"     j (v^.center)
+             <*> initProperty "resolution" j (v^.resolution)
+             <*> initProperty "rotation"   j (v^.rotation)
+  return (j,jv)
 
 
 -- CSS

@@ -19,8 +19,6 @@ module Reflex.OpenLayers.Util (
   , Property (..)
   , property
   , initProperty
-  , dynInitialize
-  , dynInitializeWith
   ) where
 
 import Reflex.OpenLayers.Event
@@ -76,16 +74,6 @@ instance (Show a, PFromJSVal a) => PFromJSVal (M.Map String a) where
         for (var k in `o) {$r.push(k); $r.push(`o[k]);}
         |]
 
-dynInitializeWith
-  :: MonadWidget t m
-  => (a -> m b) -> Dynamic t a -> (b -> WidgetHost m ()) -> m ()
-dynInitializeWith build v f = addVoidAction . fmap f =<< dyn =<< mapDyn build v
-
-dynInitialize
-  :: MonadWidget t m
-  => Dynamic t a -> (a -> WidgetHost m ()) -> m ()
-dynInitialize = dynInitializeWith return
-
 data Property t a
   = Property {
       _propertyInitialValue :: a
@@ -119,7 +107,7 @@ initProperty name o' (Property v e) = do
   (emit, suppress) <- mkSuppressor
   let update v2
         = suppress [jsu_|if(`v2!==null) {`o.set(`name, `v2)};|] -- FIXME
-  e' <- wrapOLEvent_ ("change:"++name) o [jsu|`o.get(`name);|]
+  e' <- wrapOLEvent_ ("change:"++name) o [jsu|$r=`o.get(`name);|]
   liftIO $ update v
   performEvent_ $ fmap (liftIO . update) e
   holdDyn v (leftmost [e, gate emit e'])

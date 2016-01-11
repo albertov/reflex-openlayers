@@ -9,7 +9,7 @@ import Reflex.Dom.Contrib.Widgets.BoundedList (mkHiding)
 import Reflex.OpenLayers
 
 import Control.Monad
-import Control.Lens ((^.), (^?), (^?!), over, views)
+import Control.Lens ((^.), (^?), (^?!), (%~))
 import qualified Data.Map as M
 import Data.List (foldl')
 import Safe (readMay)
@@ -21,60 +21,54 @@ main = mainWidgetWithCss olCss $ mdo
   dynLayers <- mapDyn (M.map snd) layerList
 
   mapWidget <- olMap $ def
-    & view      .~ dynView
-    & layers    .~ dynLayers
+    & center.initialValue .~ Coordinates (-10997148) 4569099
+    & center.setValue     .~ eCenter
+    & resolution.setValue .~ eResolution
+    & rotation.setValue   .~ eRotation
+    & layers              .~ dynLayers
 
   layerList <- el "ul" $ listWithKey dynLayerMap layerWidget
 
 
-  dynView <- dtdd "view" $ mdo
-    dynView <- foldDyn ($) initialView $ mergeWith(.) [
-            fmap const (mapWidget^.viewChanged)
-          , rotationChange
-          , resolutionChange
-          , centerChange
-          ]
-    rotationChange <- dtdd "rotation" $ do
-      curView <- sample (current dynView)
+  (eCenter, eResolution, eRotation) <- dtdd "view" $ do
+    eRotation <- dtdd "rotation" $ do
+      curValue <- sample (current (mapWidget^.rotation))
       input <- htmlTextInput "number" $ def
-        & widgetConfig_initialValue .~ show (curView^.rotation)
+        & widgetConfig_initialValue .~ show curValue
         & attributes .~ constDyn ("step" =: "0.05")
-        & setValue   .~
-            fmap (show . (^.rotation)) (mapWidget^.viewChanged)
-      let eVal = fmapMaybe readMay (change input)
-      return $ fmap (rotation .~) eVal
+        & setValue   .~ fmap show (updated (mapWidget^.rotation))
+      return $ fmapMaybe readMay (change input)
 
-    resolutionChange <- dtdd "resolution" $ do
-      curView <- sample (current dynView)
+    eResolution <- dtdd "resolution" $ do
+      curValue <- sample (current (mapWidget^.resolution))
       input <- htmlTextInput "number" $ def
-        & widgetConfig_initialValue .~ show (curView^.resolution)
+        & widgetConfig_initialValue .~ show curValue
         & attributes .~ constDyn ("step" =: "1000")
-        & setValue   .~
-            fmap (show . (^.resolution)) (mapWidget^.viewChanged)
-      let eVal = fmapMaybe readMay (change input)
-      return $ fmap (resolution .~) eVal
+        & setValue   .~ fmap show (updated (mapWidget^.resolution))
+      return $ fmapMaybe readMay (change input)
 
-    centerChange <- dtdd "center" $ mdo
+    eCenter <- dtdd "center" $ mdo
       let showCenter c = show (c^.x) ++ ", " ++ show (c^.y)
-      dynText =<< mapDyn (views center showCenter) dynView
+      dynText =<< mapDyn showCenter (mapWidget^.center)
       el "br" blank
       let mover = do
-            curView <- current dynView
-            pixels <- current (value input)
-            let d = (curView^.resolution) * (maybe 0 fromIntegral pixels)
+            pixels <- current (value pixelInput)
+            curResolution <- current (mapWidget^.resolution)
+            curCenter <- current (mapWidget^.center)
+            let delta = curResolution * (maybe 0 fromIntegral pixels)
             return $ \dir ->
               case dir of
-                North -> over (center . y) (+d)
-                South -> over (center . y) (subtract d)
-                East  -> over (center . x) (+d)
-                West  -> over (center . x) (subtract d)
+                North -> curCenter & y %~ (+ delta)
+                South -> curCenter & y %~ (subtract delta)
+                East  -> curCenter & x %~ (+ delta)
+                West  -> curCenter & x %~ (subtract delta)
       north <- liftM (fmap (const North)) (button "north")
       south <- liftM (fmap (const South)) (button "south")
       east <- liftM (fmap (const East)) (button "east")
       west <- liftM (fmap (const West)) (button "west")
-      input <- intWidget $ def & widgetConfig_initialValue .~ Just 10
+      pixelInput <- intWidget $ def & widgetConfig_initialValue .~ Just 10
       return $ attachWith ($) mover $ leftmost [north, south, east, west]
-    return dynView
+    return (eCenter, eResolution, eRotation)
   return ()
 
 initialLayers = fromList
@@ -85,7 +79,6 @@ initialLayers = fromList
         ("LAYERS" =: "topp:states")
   ]
 
-initialView = def & center .~ Coordinates (-10997148) 4569099
 
 layerWidget
   :: MonadWidget t m
