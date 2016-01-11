@@ -19,6 +19,8 @@ module Reflex.OpenLayers.Util (
   , Property (..)
   , property
   , initProperty
+  , dynInitialize
+  , dynInitializeWith
   ) where
 
 import Reflex.OpenLayers.Event
@@ -73,6 +75,16 @@ instance (Show a, PFromJSVal a) => PFromJSVal (M.Map String a) where
         $r=[];
         for (var k in `o) {$r.push(k); $r.push(`o[k]);}
         |]
+
+dynInitializeWith
+  :: MonadWidget t m
+  => (a -> m b) -> Dynamic t a -> (b -> WidgetHost m ()) -> m ()
+dynInitializeWith build v f = addVoidAction . fmap f =<< dyn =<< mapDyn build v
+
+dynInitialize
+  :: MonadWidget t m
+  => Dynamic t a -> (a -> WidgetHost m ()) -> m ()
+dynInitialize = dynInitializeWith return
 
 data Property t a
   = Property {

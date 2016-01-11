@@ -32,8 +32,8 @@ module Reflex.OpenLayers (
   , olCss
   , property
 
-  , module Reflex.OpenLayers.Layer
-  , module Reflex.OpenLayers.Source
+  , module Reflex.OpenLayers.Layer -- FIXME
+  , module Reflex.OpenLayers.Source --FIXME
 ) where
 
 
@@ -106,7 +106,7 @@ data Map t
   = Map {
       _map_attributes :: Dynamic t (M.Map String String)
     , _mapView        :: View t Property
-    , _mapLayers      :: Dynamic t (LayerSet (Layer t))
+    , _mapLayers      :: Dynamic t (LayerSet (Layer t Property))
     }
 makeFields ''Map
 
@@ -134,7 +134,8 @@ instance Reflex t => Default (Map t) where
 
 data MapWidget t
   = MapWidget {
-      _mapWidgetView :: View t Dynamic
+      _mapWidgetView   :: View t Dynamic
+    , _mapWidgetLayers :: Dynamic t (LayerSet (Layer t Dynamic))
     }
 makeFields ''MapWidget
 
@@ -151,11 +152,11 @@ olMap cfg = do
               buildEmptyElement "div" (cfg^.attributes)
 
   (jv, v) <- mkView (cfg^.view)
-  g <- mkLayer (group (cfg^?!layers))
-  m :: JSMap <- liftIO $ [jsu|$r = new ol.Map({view:`jv, layers:`g});|]
+  (jg, g) <- mkLayer (group (cfg^?!layers))
+  m :: JSMap <- liftIO $ [jsu|$r = new ol.Map({view:`jv, layers:`jg});|]
   getPostBuild >>=
     performEvent_ . fmap (const (liftIO ([js_|`m.setTarget(`target)|])))
-  return $ MapWidget v
+  return $ MapWidget v (g^?!layers)
 
 
 mkView :: MonadWidget t m => View t Property -> m (JSVal, View t Dynamic)

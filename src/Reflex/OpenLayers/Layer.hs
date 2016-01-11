@@ -15,7 +15,6 @@
 
 module Reflex.OpenLayers.Layer (
     Layer (..)
-  , JSLayer
   , Extent (..)
   , Opacity
   , LayerSet
@@ -106,73 +105,47 @@ pushLayer v m = case M.maxViewWithKey m of
   Nothing          -> M.singleton (toEnum 0) v
   Just ((k, _), _) -> M.insert (succ k) v m
 
-data JSLayer t
-  = JSImage { _jSLayerBase   :: LayerBase t Dynamic
-            , _jSLayerVal  :: JSVal
-            }
-  | JSTile  { _jSLayerBase   :: LayerBase t Dynamic
-            , _jSLayerVal  :: JSVal
-            }
-  | JSGroup { _jSLayerBase   :: LayerBase t Dynamic
-            , _jSLayerVal  :: JSVal
-            }
-makeFields ''JSLayer
 
-instance PToJSVal (JSLayer t) where pToJSVal = _jSLayerVal
-instance ToJSVal  (JSLayer t) where toJSVal = return . _jSLayerVal
-
-
-data Layer t
-  = Image { _layerBase   :: LayerBase t Property
+data Layer t p
+  = Image { _layerBase   :: LayerBase t p
           , _layerImageSource :: Source Raster Image t
           }
-  | Tile  { _layerBase   :: LayerBase t Property
+  | Tile  { _layerBase   :: LayerBase t p
           , _layerTileSource :: Source Raster Tile t
           }
-  | Group { _layerBase   :: LayerBase t Property
-          , _layerLayers :: Dynamic t (LayerSet (Layer t))
+  | Group { _layerBase   :: LayerBase t p
+          , _layerLayers :: Dynamic t (LayerSet (Layer t p))
           }
 makeFields ''Layer
 
-instance HasOpacity (Layer t) (Property t Opacity) where
+instance HasOpacity (Layer t p) (p t Opacity) where
   opacity = base . opacity
-instance HasVisible (Layer t) (Property t Bool) where
+instance HasVisible (Layer t p) (p t Bool) where
   visible = base . visible
-instance HasZIndex (Layer t) (Property t Int) where
+instance HasZIndex (Layer t p) (p t Int) where
   zIndex = base . zIndex
-instance HasExtent (Layer t) (Property t (Maybe Extent)) where
+instance HasExtent (Layer t p) (p t (Maybe Extent)) where
   extent = base . extent
-instance HasMinResolution (Layer t) (Property t (Maybe Double)) where
+instance HasMinResolution (Layer t p) (p t (Maybe Double)) where
   minResolution = base . minResolution
-instance HasMaxResolution (Layer t) (Property t (Maybe Double)) where
-  maxResolution = base . maxResolution
-
-
-instance HasOpacity (JSLayer t) (Dynamic t Opacity) where
-  opacity = base . opacity
-instance HasVisible (JSLayer t) (Dynamic t Bool) where
-  visible = base . visible
-instance HasZIndex (JSLayer t) (Dynamic t Int) where
-  zIndex = base . zIndex
-instance HasExtent (JSLayer t) (Dynamic t (Maybe Extent)) where
-  extent = base . extent
-instance HasMinResolution (JSLayer t) (Dynamic t (Maybe Double)) where
-  minResolution = base . minResolution
-instance HasMaxResolution (JSLayer t) (Dynamic t (Maybe Double)) where
+instance HasMaxResolution (Layer t p) (p t (Maybe Double)) where
   maxResolution = base . maxResolution
 
 
 
-image :: Reflex t => Source Raster Image t -> Layer t
+
+image :: Reflex t => Source Raster Image t -> Layer t Property
 image = Image def
 
-tile :: Reflex t => Source Raster Tile t -> Layer t
+tile :: Reflex t => Source Raster Tile t -> Layer t Property
 tile = Tile def
 
-group :: Reflex t => Dynamic t (LayerSet (Layer t)) -> Layer t
+group
+  :: Reflex t
+  => Dynamic t (LayerSet (Layer t Property)) -> Layer t Property
 group = Group def
 
-mkLayer :: MonadWidget t m => Layer t -> m (JSLayer t)
+mkLayer :: MonadWidget t m => Layer t Property -> m (JSVal, Layer t Dynamic)
 mkLayer l = do
   liftIO $ putStrLn "mkLayer"
   case l of
@@ -180,21 +153,23 @@ mkLayer l = do
       s <- mkSource _layerImageSource
       j <- liftIO [jsu|$r=new ol.layer.Image({source:`s});|]
       b <- updateBase j (l^.base)
-      return $ JSImage b j
+      return (j, Image b _layerImageSource)
     Tile{_layerTileSource} -> do
       s <- mkSource _layerTileSource
       j <- liftIO [jsu|$r=new ol.layer.Tile({source: `s});|]
       b <- updateBase j (l^.base)
-      return $ JSTile b j
+      return (j, Tile b _layerTileSource)
     Group{_layerLayers} -> do
       j <- liftIO [jsu|$r=new ol.layer.Group({});|]
-      jsLayers <- list _layerLayers (\dL -> sample (current dL) >>= mkLayer)
+      dynLs <- list _layerLayers (\dL -> sample (current dL) >>= mkLayer)
+      jsObs <- mapDyn (M.map fst) dynLs
+      jsLayers <- mapDyn (M.map snd) dynLs
       performEvent_ $ fmap (\ls -> liftIO $ do
         jsLs <- liftIO (toJSVal (M.elems ls))
         [jsu_|`j.setLayers(new ol.Collection(`jsLs));|]
-        ) (updated jsLayers)
+        ) (updated jsObs)
       b <- updateBase j (l^.base)
-      return $ JSGroup b j
+      return (j, Group b jsLayers)
   where
     updateBase r b =
       LayerBase <$> initProperty "opacity" r (b^.opacity)

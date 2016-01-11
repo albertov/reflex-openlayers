@@ -52,8 +52,8 @@ import Control.Monad (liftM, forM_, when)
 import Control.Lens
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
-import GHCJS.Marshal (toJSVal, fromJSVal)
-import GHCJS.Types (JSVal, JSString, jsval)
+import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
+import GHCJS.Types (JSVal, IsJSVal, JSString, jsval)
 import GHCJS.DOM.Types
 import GHCJS.Foreign.QQ
 import GHCJS.Foreign.Callback
@@ -114,10 +114,12 @@ data Source (r::SourceK) (k::TileK) t where
     , _rasterSources   :: s
     } -> Source Raster Image t
 
-newtype AnySource = AnySource (JSVal)
+newtype JSSource = JSSource JSVal
+  deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
+instance IsJSVal JSSource
 
-anySource :: MonadWidget t m => Source r k t -> m AnySource
-anySource = fmap AnySource . mkSource
+anySource :: MonadWidget t m => Source r k t -> m JSSource
+anySource = fmap JSSource . mkSource
 
 newtype Pixel = Pixel JSVal deriving (PFromJSVal, PToJSVal)
 red, green, blue, alpha :: Lens' Pixel Word8
@@ -128,9 +130,9 @@ alpha = lens (\p->[jsu'|$r=`p[3];|]) (\p v-> [jsu'|$r=`p;$r[3]=`v;|])
 
 
 
-instance RasterOperation (Pixel -> Pixel) AnySource where
+instance RasterOperation (Pixel -> Pixel) JSSource where
   applyOp f i = return (pToJSVal (f [jsu'|$r=`i[0];|]))
-  packSources (AnySource s) = liftIO [jsu|$r=[`s];|]
+  packSources (JSSource s) = liftIO [jsu|$r=[`s];|]
   operationType _ = "pixel"
 
 

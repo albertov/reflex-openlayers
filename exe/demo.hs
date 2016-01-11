@@ -83,8 +83,9 @@ initialLayers = fromList
 layerWidget
   :: MonadWidget t m
   => Int
-  -> Dynamic t (Layer t)
-  -> m (Event t (LayerSet (Layer t) -> LayerSet (Layer t)), Layer t)
+  -> Dynamic t (Layer t Property)
+  -> m ( Event t (LayerSet (Layer t Property) -> LayerSet (Layer t Property))
+       , Layer t Property)
 layerWidget key layer = el "li" $ do
   curLayer <- sample (current layer)
 
