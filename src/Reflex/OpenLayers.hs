@@ -112,7 +112,7 @@ data Map t
   = Map {
       _map_attributes :: Dynamic t (M.Map String String)
     , _mapView        :: Dynamic t View
-    , _mapLayers      :: Dynamic t (LayerSet (JSLayer t))
+    , _mapLayers      :: Dynamic t (LayerSet (Layer t))
     }
 makeFields ''Map
 

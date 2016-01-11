@@ -91,7 +91,7 @@ layerWidget
   :: MonadWidget t m
   => Int
   -> Dynamic t (Layer t)
-  -> m (Event t (LayerSet (Layer t) -> LayerSet (Layer t)), JSLayer t)
+  -> m (Event t (LayerSet (Layer t) -> LayerSet (Layer t)), Layer t)
 layerWidget key layer = el "li" $ do
   curLayer <- sample (current layer)
 
@@ -128,13 +128,14 @@ layerWidget key layer = el "li" $ do
       return $ fmap (\v -> Just . (tileSource .~ v)) eSource
     _ -> return never
 -}
-  ret <- mkLayer (foldl' (&) curLayer [
-      eVisible
-    , eOpacity
-    , eZIndex
-    ])
   eDelete <- button "delete"
-  return (fmap (const (M.delete key)) eDelete, ret)
+  return ( fmap (const (M.delete key)) eDelete
+         , foldl' (&) curLayer [
+                eVisible
+              , eOpacity
+              , eZIndex
+              ]
+         )
 
 sourceWidget
   :: MonadWidget t m

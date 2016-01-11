@@ -130,7 +130,7 @@ data Layer t
           , _layerTileSource :: Source Raster Tile t
           }
   | Group { _layerBase   :: LayerBase t Property
-          , _layerLayers :: Dynamic t (LayerSet (JSLayer t))
+          , _layerLayers :: Dynamic t (LayerSet (Layer t))
           }
 makeFields ''Layer
 
@@ -169,7 +169,7 @@ image = Image def
 tile :: Reflex t => Source Raster Tile t -> Layer t
 tile = Tile def
 
-group :: Reflex t => Dynamic t (LayerSet (JSLayer t)) -> Layer t
+group :: Reflex t => Dynamic t (LayerSet (Layer t)) -> Layer t
 group = Group def
 
 mkLayer :: MonadWidget t m => Layer t -> m (JSLayer t)
@@ -188,9 +188,11 @@ mkLayer l = do
       return $ JSTile b j
     Group{_layerLayers} -> do
       j <- liftIO [jsu|$r=new ol.layer.Group({});|]
-      dynInitialize _layerLayers $ \ls -> liftIO $ do
+      jsLayers <- list _layerLayers (\dL -> sample (current dL) >>= mkLayer)
+      performEvent_ $ fmap (\ls -> liftIO $ do
         jsLs <- liftIO (toJSVal (M.elems ls))
         [jsu_|`j.setLayers(new ol.Collection(`jsLs));|]
+        ) (updated jsLayers)
       b <- updateBase j (l^.base)
       return $ JSGroup b j
   where
