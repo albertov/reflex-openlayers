@@ -158,7 +158,6 @@ raster op = Raster op
 
 mkSource :: MonadWidget t m => Source r k t -> m JSVal
 mkSource s = do
-  --liftIO $ putStrLn "mkSource" --FIXME
   case s of
     ImageWMS{_imageWmsUrl, _imageWmsParams} ->
       liftIO [jsu|

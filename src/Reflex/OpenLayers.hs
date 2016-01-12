@@ -161,9 +161,9 @@ olMap cfg = do
 
   (jv, v) <- mkView (cfg^.view)
   (jg, g) <- mkLayer (group (cfg^?!layers))
-  m <- liftIO $ [jsu|$r = new ol.Map({view:`jv, layers:`jg}); window._map=$r;|]
+  m <- liftIO $ [jsu|$r = new ol.Map({view:`jv, layers:`jg});|]
   getPostBuild >>=
-    performEvent_ . fmap (const (liftIO [js_|`m.setTarget(`target)|]))
+    performEvent_ . fmap (const (liftIO [js_|`m.setTarget(`target);|]))
   return $ MapWidget v (g^?!layers) m
 
 

@@ -14,20 +14,21 @@ Cabal-version: >=1.10
 library
   hs-source-dirs: src
   build-depends:
-    base,
-    reflex,
-    ghcjs-base,
-    ghcjs-dom == 0.2.*,
-    ghcjs-ffiqq,
-    reflex-dom,
-    containers,
-    ref-tf,
-    transformers,
-    data-default,
-    dependent-sum,
-    file-embed,
-    lens,
-    bytestring
+      base
+    , reflex
+    , ghcjs-base
+    , ghcjs-dom == 0.2.*
+    , ghcjs-ffiqq
+    , reflex-dom
+    , containers
+    , ref-tf
+    , transformers
+    , data-default
+    , dependent-sum
+    , file-embed
+    , these
+    , lens
+    , bytestring
   exposed-modules:
       Reflex.OpenLayers
     , Reflex.OpenLayers.Source
@@ -44,16 +45,16 @@ executable reflex-openlayers-demo
   hs-source-dirs: exe
   main-is: demo.hs
   build-depends:
-    base,
-    lens,
-    reflex,
-    reflex-dom,
-    reflex-dom-contrib,
-    data-default,
-    reflex-openlayers,
-    containers,
-    transformers,
-    safe
+      base
+    , lens
+    , reflex
+    , reflex-dom
+    , reflex-dom-contrib
+    , data-default
+    , reflex-openlayers
+    , containers
+    , transformers
+    , safe
   default-language: Haskell2010
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
   --cpp-options: -DGHCJS_TRACE_WEAK

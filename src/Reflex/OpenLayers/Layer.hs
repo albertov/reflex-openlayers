@@ -1,6 +1,7 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -10,7 +11,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
 
 module Reflex.OpenLayers.Layer (
@@ -47,9 +48,11 @@ import Reflex.Dom
 import Data.Default (Default(def))
 import qualified Data.Map as M
 import Data.Monoid
-import Data.Maybe (fromMaybe)
+import Data.Maybe
+import Data.These
+import Data.Align
 import Control.Lens
-import Control.Monad (when, liftM, forM)
+import Control.Monad (when, liftM, forM, forM_)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
@@ -156,31 +159,24 @@ mkLayer :: MonadWidget t m => Layer t Property -> m (JSLayer, Layer t Dynamic)
 mkLayer lyr = do
   case lyr of
     Image{_layerImageSource} -> do
-      j <- liftIO [jsu|$r=new ol.layer.Image({source:null});|]
+      j <- liftIO [jsu|$r=new ol.layer.Image();|]
       dynInitializeWith mkSource _layerImageSource $ \s -> do
         liftIO [jsu_|`j.setSource(`s);|]
       b <- updateBase j (lyr^.base)
       return (j, Image b _layerImageSource)
     Tile{_layerTileSource} -> do
-      --liftIO $ putStrLn "mkLayer Tile" --FIXME
-      j <- liftIO [jsu|$r=new ol.layer.Tile({source:null});|]
+      j <- liftIO [jsu|$r=new ol.layer.Tile();|]
       dynInitializeWith mkSource _layerTileSource $ \s -> do
         liftIO [jsu_|`j.setSource(`s);|]
       b <- updateBase j (lyr^.base)
       return (j, Tile b _layerTileSource)
     Group{_layerLayers} -> do
-      --liftIO $ putStrLn "mkLayer Group" --FIXME
-      j <- liftIO [jsu|$r=new ol.layer.Group({layers:[]});|]
-      dynLs <- list _layerLayers (\dL -> sample (current dL) >>= mkLayer)
-      jsObs <- mapDyn (M.map fst) dynLs
-      jsLayers <- mapDyn (M.map snd) dynLs
-      performEvent_ $ fmap (\ls -> liftIO $ do
-        jsLs <- liftIO (toJSVal (M.elems ls))
-        --liftIO $ putStrLn "setLayers"
-        [jsu_|`j.setLayers(new ol.Collection(`jsLs));|]
-        ) (updated (nubDyn jsObs))
+      dynMkLayers <- list _layerLayers (\dL -> sample (current dL) >>= mkLayer)
+      dynLayers <- mapDyn (M.map snd) dynMkLayers
+      c <- mkCollection =<< mapDyn (M.map fst) dynMkLayers
+      j <- liftIO [jsu|$r=new ol.layer.Group({layers:`c});|]
       b <- updateBase j (lyr^.base)
-      return (j, Group b jsLayers)
+      return (j, Group b dynLayers)
   where
     updateBase r b =
       LayerBase <$> initProperty "opacity" r (b^.opacity)
@@ -189,3 +185,28 @@ mkLayer lyr = do
                 <*> initProperty "extent" r (b^.extent)
                 <*> initProperty "minResolution" r (b^.minResolution)
                 <*> initProperty "maxResolution" r (b^.maxResolution)
+
+newtype Collection = Collection JSVal
+  deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
+instance IsJSVal Collection
+
+mkCollection
+  :: (MonadWidget t m, PToJSVal a, Eq a)
+  => Dynamic t (M.Map Int a) -> m Collection
+mkCollection items = do
+  c <- liftIO [jsu|$r=new ol.Collection();|]
+  performEvent_ $ fmap (\(cur, new) -> liftIO $ do
+    forM_ (align cur new) $ \case
+      This old                   -> do
+        putStrLn $ "remove: "
+        [js_|`c.remove(`old);|]
+      That new                 -> do
+        putStrLn $ "push: "
+        [js_|`c.push(`new);|]
+      These old new | old/=new -> do
+        putStrLn $ "remove/push: "
+        [js_|`c.remove(`old);|]
+        [js_|`c.push(`new);|]
+      _                        -> return ()
+    ) (attach (current items) (updated items))
+  return c

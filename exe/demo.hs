@@ -78,7 +78,7 @@ initialLayers = fromList
           "http://demo.boundlessgeo.com/geoserver/ne/wms"
           (   "LAYERS" =: "ne:ne_10m_admin_0_countries"
            <> "TILED" =: "true")
-      --, tile $ constDyn osm -- FIXME: does not play well with MapQuest (why!?)
+      , tile $ constDyn osm
       ]
   , tile $ constDyn $ mapQuest Satellite
 
