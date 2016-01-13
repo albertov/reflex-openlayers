@@ -13,8 +13,8 @@
 {-# LANGUAGE DataKinds #-}
 
 module Reflex.OpenLayers (
-    Map
-  , MapWidget
+    MapConfig
+  , Map
   , View
   , Property
   , Coordinates (..)
@@ -28,6 +28,7 @@ module Reflex.OpenLayers (
   , HasLayers (..)
   , HasInitialValue (..)
   , HasSetValue (..)
+  , HasUpdateSize (..)
   , olMap
   , olCss
   , property
@@ -99,77 +100,80 @@ instance Reflex t => Default (View t Property)where
     }
 
 --
--- Map
+-- MapConfig
 --
 
-data Map t
-  = Map {
-      _map_attributes :: Dynamic t (M.Map String String)
-    , _mapView        :: View t Property
-    , _mapLayers      :: Dynamic t (LayerSet (Layer t Property))
+data MapConfig t
+  = MapConfig {
+      _mapConfig_attributes :: Dynamic t (M.Map String String)
+    , _mapConfigView        :: View t Property
+    , _mapConfigLayers      :: Dynamic t (LayerSet (Layer t Property))
+    , _mapConfigUpdateSize  :: Event t ()
     }
-makeFields ''Map
+makeFields ''MapConfig
 
 
-instance HasCenter (Map t) (Property t Coordinates) where
+instance HasCenter (MapConfig t) (Property t Coordinates) where
   center = view . center
-instance HasResolution (Map t) (Property t Double) where
+instance HasResolution (MapConfig t) (Property t Double) where
   resolution = view . resolution
-instance HasRotation (Map t) (Property t Rotation) where
+instance HasRotation (MapConfig t) (Property t Rotation) where
   rotation = view . rotation
 
 newtype JSMap = JSMap JSVal
   deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
 instance IsJSVal JSMap
 
-instance HasAttributes (Map t) where
-  type Attrs (Map t) = Dynamic t (M.Map String String)
-  attributes = lens _map_attributes (\o v -> o {_map_attributes=v})
+instance HasAttributes (MapConfig t) where
+  type Attrs (MapConfig t) = Dynamic t (M.Map String String)
+  attributes = lens _mapConfig_attributes (\o v -> o {_mapConfig_attributes=v})
 
-instance Reflex t => Default (Map t) where
-  def = Map {
-        _map_attributes  = constDyn mempty
-      , _mapView         = def
-      , _mapLayers       = constDyn def
+instance Reflex t => Default (MapConfig t) where
+  def = MapConfig {
+        _mapConfig_attributes  = constDyn mempty
+      , _mapConfigView         = def
+      , _mapConfigLayers       = constDyn def
+      , _mapConfigUpdateSize   = never
     }
 
-data MapWidget t
-  = MapWidget {
-      _mapWidgetView   :: View t Dynamic
-    , _mapWidgetLayers :: Dynamic t (LayerSet (Layer t Dynamic))
-    , _mapWidgetJsVal  :: JSMap
+data Map t
+  = Map {
+      _mapView   :: View t Dynamic
+    , _mapLayers :: Dynamic t (LayerSet (Layer t Dynamic))
+    , _mapJsVal  :: JSMap
     }
-makeFields ''MapWidget
+makeFields ''Map
 
-instance PToJSVal (MapWidget t) where
-  pToJSVal = jsval . _mapWidgetJsVal
+instance PToJSVal (Map t) where
+  pToJSVal = jsval . _mapJsVal
 
-instance ToJSVal (MapWidget t) where
+instance ToJSVal (Map t) where
   toJSVal = return . pToJSVal
 
-instance HasCenter (MapWidget t) (Dynamic t Coordinates) where
+instance HasCenter (Map t) (Dynamic t Coordinates) where
   center = view . center
-instance HasResolution (MapWidget t) (Dynamic t Double) where
+instance HasResolution (Map t) (Dynamic t Double) where
   resolution = view . resolution
-instance HasRotation (MapWidget t) (Dynamic t Rotation) where
+instance HasRotation (Map t) (Dynamic t Rotation) where
   rotation = view . rotation
 
-olMap :: MonadWidget t m => Map t -> m (MapWidget t)
+olMap :: MonadWidget t m => MapConfig t -> m (Map t)
 olMap cfg = do
   target <- liftM (unElement . toElement . castToHTMLDivElement) $
               buildEmptyElement "div" (cfg^.attributes)
-
   (jv, v) <- mkView (cfg^.view)
   (jg, g) <- mkLayer (group (cfg^?!layers))
-  m <- liftIO $ [jsu|$r = new ol.Map({view:`jv, layers:`jg});|]
-  getPostBuild >>=
-    performEvent_ . fmap (const (liftIO [js_|`m.setTarget(`target);|]))
-  return $ MapWidget v (g^?!layers) m
+  m <- liftIO $ [jsu|$r = new ol.Map({view:`jv, layers:`jg, target:`target});|]
+  postBuild <- getPostBuild
+  performEvent_ $
+    fmap (const (liftIO [js_|`m.updateSize();|])) $
+      leftmost [cfg^.updateSize, postBuild]
+  return $ Map v (g^?!layers) m
 
 
 mkView :: MonadWidget t m => View t Property -> m (JSVal, View t Dynamic)
 mkView v = do
-  j <- liftIO [jsu|$r = new ol.View({});|]
+  j <- liftIO [jsu|$r = new ol.View();|]
   jv <- View <$> initProperty "center"     j (v^.center)
              <*> initProperty "resolution" j (v^.resolution)
              <*> initProperty "rotation"   j (v^.rotation)

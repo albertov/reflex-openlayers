@@ -23,6 +23,7 @@ main = mainWidgetWithCss olCss $ mdo
     & resolution.setValue .~ eResolution
     & rotation.setValue   .~ eRotation
     & layers              .~ dynLayers
+    & attributes          .~ constDyn ("style"=:"height:300px")
 
   dynLayers <- layerListWidget (constDyn initialLayers)
 
@@ -173,12 +174,14 @@ sourceWidget curVal =
         text "URL"
         input <- htmlTextInput "url" $ def
           & widgetConfig_initialValue .~ _imageWmsUrl
+          & attributes .~ (constDyn ("size" =: "60"))
         return $ fmap (\v -> s {_imageWmsUrl=v}) (blurOrEnter input)
     s@TileWMS{_tileWmsUrl} -> do
       el "label" $ do
         text "URL"
         input <- htmlTextInput "url" $ def
           & widgetConfig_initialValue .~ _tileWmsUrl
+          & attributes .~ (constDyn ("size" =: "60"))
         return $ fmap (\v -> s {_tileWmsUrl=v}) (blurOrEnter input)
     s@MapQuest{_mapQuestLayer} -> do
       el "label" $ do

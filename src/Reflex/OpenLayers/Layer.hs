@@ -195,18 +195,11 @@ mkCollection
   => Dynamic t (M.Map Int a) -> m Collection
 mkCollection items = do
   c <- liftIO [jsu|$r=new ol.Collection();|]
-  performEvent_ $ fmap (\(cur, new) -> liftIO $ do
+  let eOldNew = attach (current items) (updated items)
+  performEvent_ $ ffor eOldNew  $ \(cur, new) -> liftIO $ do
     forM_ (align cur new) $ \case
-      This old                   -> do
-        putStrLn $ "remove: "
-        [js_|`c.remove(`old);|]
-      That new                 -> do
-        putStrLn $ "push: "
-        [js_|`c.push(`new);|]
-      These old new | old/=new -> do
-        putStrLn $ "remove/push: "
-        [js_|`c.remove(`old);|]
-        [js_|`c.push(`new);|]
+      This old                 -> [js_|`c.remove(`old);|]
+      That new                 -> [js_|`c.push(`new);|]
+      These old new | old/=new -> [js_|`c.remove(`old);`c.push(`new);|]
       _                        -> return ()
-    ) (attach (current items) (updated items))
   return c
