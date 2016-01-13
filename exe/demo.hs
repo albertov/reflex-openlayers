@@ -9,6 +9,7 @@ import Reflex.Dom.Contrib.Widgets.BoundedList (mkHiding)
 import Reflex.OpenLayers
 
 import Control.Monad
+import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Lens ((^.), (^?), (^?!), (%~))
 import qualified Data.Map as M
 import Data.List (foldl')
@@ -25,7 +26,8 @@ main = mainWidgetWithCss olCss $ mdo
     & layers              .~ dynLayers
     & attributes          .~ constDyn ("style"=:"height:300px")
 
-  dynLayers <- layerListWidget (constDyn initialLayers)
+  dynLayers' <- layerListWidget (constDyn initialLayers)
+  dynLayers <- layerListWidget dynLayers'
 
   (eCenter, eResolution, eRotation) <- dtdd "view" $ do
     eRotation <- dtdd "rotation" $ do
@@ -70,18 +72,18 @@ main = mainWidgetWithCss olCss $ mdo
 
 initialLayers = fromList
   [
-    tile $ constDyn $
+    tile $
       tileWMS
         "http://demo.boundlessgeo.com/geoserver/wms"
         ("LAYERS" =: "topp:states")
   , group $ constDyn $ fromList [
-        tile $ constDyn $ tileWMS
+        tile $ tileWMS
           "http://demo.boundlessgeo.com/geoserver/ne/wms"
           (   "LAYERS" =: "ne:ne_10m_admin_0_countries"
            <> "TILED" =: "true")
-      , tile $ constDyn osm
+      , tile osm
       ]
-  , tile $ constDyn $ mapQuest Satellite
+  , tile $ mapQuest Satellite
 
   ]
 
@@ -108,12 +110,13 @@ layerWidget
        , Layer t Property)
 layerWidget key layer = el "li" $ do
   curLayer <- sample (current layer)
+  liftIO $ putStrLn "layerWidget"
 
   eVisible <- el "label" $ do
     input <- checkbox (curLayer^.visible.initialValue) $ def
       & setValue .~ curLayer^.visible.setValue
     text "Visible?"
-    return $ visible.setValue .~ (_checkbox_change input)
+    return $ visible.setValue %~ leftmost . (:[_checkbox_change input])
 
   eOpacity <- el "label" $ do
     text "Opacity"
@@ -122,7 +125,7 @@ layerWidget key layer = el "li" $ do
       & setValue .~ fmap show (curLayer^.opacity.setValue)
       & attributes .~ constDyn ("step" =: "0.05")
     let eChange = fmapMaybe readMay (change input)
-    return $ opacity.setValue .~ eChange
+    return $ opacity.setValue %~ leftmost . (:[eChange])
 
   eZIndex <- el "label" $ do
     text "ZIndex"
@@ -130,19 +133,15 @@ layerWidget key layer = el "li" $ do
       & widgetConfig_initialValue .~ show (curLayer^.zIndex.initialValue)
       & setValue .~ fmap show (curLayer^.zIndex.setValue)
     let eChange = fmapMaybe readMay (change input)
-    return $ zIndex.setValue .~ eChange
+    return $ zIndex.setValue %~ leftmost . (:[eChange])
 
   eSource <- case curLayer of
     Image{} -> do
-      curSource <- sample (current (curLayer^?!imageSource))
-      eSource <- sourceWidget curSource
-      dynSource <- holdDyn curSource eSource
-      return $ imageSource .~ dynSource
+      eChange <- sourceWidget (curLayer^?!imageSource)
+      return $ imageSource.setValue %~ leftmost . (:[eChange])
     Tile{} -> do
-      curSource <- sample (current (curLayer^?!tileSource))
-      eSource <- sourceWidget curSource
-      dynSource <- holdDyn curSource eSource
-      return $ tileSource .~ dynSource
+      eChange <- sourceWidget (curLayer^?!tileSource)
+      return $ tileSource.setValue %~ leftmost . (:[eChange])
     _ -> return id
 
   eGroupLayers <- case curLayer of
@@ -165,30 +164,33 @@ layerWidget key layer = el "li" $ do
 
 sourceWidget
   :: MonadWidget t m
-  => Source r k t
+  => Property t (Source r k t)
   -> m (Event t (Source r k t))
-sourceWidget curVal =
-  case curVal of
-    s@ImageWMS{_imageWmsUrl} -> do
-      el "label" $ do
-        text "URL"
-        input <- htmlTextInput "url" $ def
-          & widgetConfig_initialValue .~ _imageWmsUrl
-          & attributes .~ (constDyn ("size" =: "60"))
-        return $ fmap (\v -> s {_imageWmsUrl=v}) (blurOrEnter input)
-    s@TileWMS{_tileWmsUrl} -> do
-      el "label" $ do
-        text "URL"
-        input <- htmlTextInput "url" $ def
-          & widgetConfig_initialValue .~ _tileWmsUrl
-          & attributes .~ (constDyn ("size" =: "60"))
-        return $ fmap (\v -> s {_tileWmsUrl=v}) (blurOrEnter input)
-    s@MapQuest{_mapQuestLayer} -> do
-      el "label" $ do
-        text "Layer"
-        input <- htmlDropdownStatic [minBound..maxBound] show id $ def
-          & widgetConfig_initialValue .~ _mapQuestLayer
-        return $ fmap (\v -> s {_mapQuestLayer=v}) (change input)
-    _ -> return never
+sourceWidget p = do
+  val <- holdDyn (p^.initialValue) (p^.setValue)
+  switchPromptly never =<< dyn =<< flip mapDyn val (\curVal ->
+      case curVal of
+        s@ImageWMS{_imageWmsUrl} -> do
+          el "label" $ do
+            text "URL"
+            input <- htmlTextInput "url" $ def
+              & widgetConfig_initialValue .~ _imageWmsUrl
+              & attributes .~ (constDyn ("size" =: "60"))
+            return $ fmap (\v -> s {_imageWmsUrl=v}) (blurOrEnter input)
+        s@TileWMS{_tileWmsUrl} -> do
+          el "label" $ do
+            text "URL"
+            input <- htmlTextInput "url" $ def
+              & widgetConfig_initialValue .~ _tileWmsUrl
+              & attributes .~ (constDyn ("size" =: "60"))
+            return $ fmap (\v -> s {_tileWmsUrl=v}) (blurOrEnter input)
+        s@MapQuest{_mapQuestLayer} -> do
+          el "label" $ do
+            text "Layer"
+            input <- htmlDropdownStatic [minBound..maxBound] show id $ def
+              & widgetConfig_initialValue .~ _mapQuestLayer
+            return $ fmap (\v -> s {_mapQuestLayer=v}) (change input)
+        _ -> return never
+        )
 
 data Direction = North | South | East | West

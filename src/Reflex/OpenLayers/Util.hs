@@ -19,8 +19,7 @@ module Reflex.OpenLayers.Util (
   , Property (..)
   , property
   , initProperty
-  , dynInitialize
-  , dynInitializeWith
+  , initPropertyWith
   ) where
 
 import Reflex.OpenLayers.Event
@@ -30,10 +29,7 @@ import Reflex.Host.Class
 import Reflex.Dom
 import Data.Dependent.Sum (DSum (..))
 
-import GHC.TypeLits
-import Data.Proxy
-
-import Control.Monad (forM_, when, void, (>=>))
+import Control.Monad (forM_, when, void, (>=>), (<=<))
 import Control.Monad.Ref (MonadRef(readRef), Ref)
 import Control.Exception (finally)
 import Control.Lens
@@ -47,9 +43,8 @@ import GHCJS.Types
 import GHCJS.DOM.Types (toJSString)
 import qualified JavaScript.Object as O
 import System.IO.Unsafe (unsafePerformIO)
-import Unsafe.Coerce (unsafeCoerce)
-import System.Mem.StableName
 
+import GHCJS.DOM.Document (createDocumentFragment)
 
 
 instance PToJSVal a => PToJSVal (M.Map String a) where
@@ -123,6 +118,23 @@ initProperty name o' (Property v e) = do
   liftIO $ update v
   performEvent_ $ fmap (liftIO . update) e
   holdDyn v (leftmost [e, gate emit e'])
+
+initPropertyWith
+  :: (MonadWidget t m, PToJSVal o, PToJSVal b)
+  => (a -> m b) -> String -> o -> Property t a -> m (Dynamic t a)
+initPropertyWith build name o' (Property v e) = do
+  doc <- askDocument
+  runWidget <- getRunWidget
+  let o = pToJSVal o'
+      update v2 = [jsu_|if(`v2!==null) {`o.set(`name, `v2)};|] -- FIXME
+      liftWidget a = do
+        Just df <- liftIO $ createDocumentFragment doc
+        (result, postBuild, _) <- runWidget df a
+        postBuild
+        return result
+  liftIO . update =<< build v
+  performEvent_ $ fmap (liftIO . update <=< liftWidget . build) e
+  holdDyn v e
 
 mkSuppressor
   :: MonadWidget t m

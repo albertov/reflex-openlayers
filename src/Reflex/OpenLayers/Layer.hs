@@ -112,10 +112,10 @@ pushLayer v m = case M.maxViewWithKey m of
 
 data Layer t p
   = Image { _layerBase   :: LayerBase t p
-          , _layerImageSource :: Dynamic t (Source Raster Image t)
+          , _layerImageSource :: p t (Source Raster Image t)
           }
   | Tile  { _layerBase   :: LayerBase t p
-          , _layerTileSource :: Dynamic t (Source Raster Tile t)
+          , _layerTileSource :: p t (Source Raster Tile t)
           }
   | Group { _layerBase   :: LayerBase t p
           , _layerLayers :: Dynamic t (LayerSet (Layer t p))
@@ -144,11 +144,11 @@ instance Eq JSLayer where
   a == b = [jsu'|$r=(`a===`b);|]
 
 
-image :: Reflex t => Dynamic t (Source Raster Image t) -> Layer t Property
-image = Image def
+image :: Reflex t => Source Raster Image t -> Layer t Property
+image = Image def . property
 
-tile :: Reflex t => Dynamic t (Source Raster Tile t) -> Layer t Property
-tile = Tile def
+tile :: Reflex t => Source Raster Tile t -> Layer t Property
+tile = Tile def . property
 
 group
   :: Reflex t
@@ -160,16 +160,14 @@ mkLayer lyr = do
   case lyr of
     Image{_layerImageSource} -> do
       j <- liftIO [jsu|$r=new ol.layer.Image();|]
-      dynInitializeWith mkSource _layerImageSource $ \s -> do
-        liftIO [jsu_|`j.setSource(`s);|]
+      dynSource <- initPropertyWith mkSource "source" j _layerImageSource
       b <- updateBase j (lyr^.base)
-      return (j, Image b _layerImageSource)
+      return (j, Image b dynSource)
     Tile{_layerTileSource} -> do
       j <- liftIO [jsu|$r=new ol.layer.Tile();|]
-      dynInitializeWith mkSource _layerTileSource $ \s -> do
-        liftIO [jsu_|`j.setSource(`s);|]
+      dynSource <- initPropertyWith mkSource "source" j _layerTileSource
       b <- updateBase j (lyr^.base)
-      return (j, Tile b _layerTileSource)
+      return (j, Tile b dynSource)
     Group{_layerLayers} -> do
       dynMkLayers <- list _layerLayers (\dL -> sample (current dL) >>= mkLayer)
       dynLayers <- mapDyn (M.map snd) dynMkLayers
