@@ -160,12 +160,14 @@ mkLayer lyr = do
   case lyr of
     Image{_layerImageSource} -> do
       j <- liftIO [jsu|$r=new ol.layer.Image();|]
-      dynSource <- initPropertyWith mkSource "source" j _layerImageSource
+      dynSource <-
+        initPropertyWith Nothing mkSource "source" j _layerImageSource
       b <- updateBase j (lyr^.base)
       return (j, Image b dynSource)
     Tile{_layerTileSource} -> do
       j <- liftIO [jsu|$r=new ol.layer.Tile();|]
-      dynSource <- initPropertyWith mkSource "source" j _layerTileSource
+      dynSource <-
+        initPropertyWith Nothing mkSource "source" j _layerTileSource
       b <- updateBase j (lyr^.base)
       return (j, Tile b dynSource)
     Group{_layerLayers} -> do
