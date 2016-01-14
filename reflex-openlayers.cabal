@@ -15,11 +15,12 @@ library
   hs-source-dirs: src
   build-depends:
       base
-    , reflex
     , ghcjs-base
     , ghcjs-dom == 0.2.*
     , ghcjs-ffiqq
+    , reflex
     , reflex-dom
+    , reflex-dom-contrib
     , containers
     , ref-tf
     , transformers
@@ -28,10 +29,12 @@ library
     , file-embed
     , these
     , lens
+    , safe
     , bytestring
   exposed-modules:
       Reflex.OpenLayers
     , Reflex.OpenLayers.Source
+    , Reflex.OpenLayers.Widgets
     , Reflex.OpenLayers.Layer
     , Reflex.OpenLayers.Event
     , Reflex.OpenLayers.Util

@@ -31,7 +31,7 @@ module Reflex.OpenLayers (
   , HasUpdateSize (..)
   , olMap
   , olCss
-  , property
+  , constProperty
 
   , module Reflex.OpenLayers.Layer -- FIXME
   , module Reflex.OpenLayers.Source --FIXME
@@ -94,9 +94,9 @@ makeFields ''View
 
 instance Reflex t => Default (View t Property)where
   def = View {
-      _viewCenter     = property (Coordinates 0 0)
-    , _viewResolution = property 100000
-    , _viewRotation   = property 0
+      _viewCenter     = constProperty (Coordinates 0 0)
+    , _viewResolution = constProperty 100000
+    , _viewRotation   = constProperty 0
     }
 
 --

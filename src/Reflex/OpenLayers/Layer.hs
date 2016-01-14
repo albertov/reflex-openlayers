@@ -91,12 +91,12 @@ makeFields ''LayerBase
 
 instance Reflex t => Default (LayerBase t Property) where
   def = LayerBase {
-       _layerBaseOpacity          = property 1
-     , _layerBaseVisible          = property True
-     , _layerBaseZIndex           = property 0
-     , _layerBaseExtent           = property Nothing
-     , _layerBaseMinResolution    = property Nothing
-     , _layerBaseMaxResolution    = property Nothing
+       _layerBaseOpacity          = constProperty 1
+     , _layerBaseVisible          = constProperty True
+     , _layerBaseZIndex           = constProperty 0
+     , _layerBaseExtent           = constProperty Nothing
+     , _layerBaseMinResolution    = constProperty Nothing
+     , _layerBaseMaxResolution    = constProperty Nothing
      }
 
 type LayerSet = M.Map Int
@@ -145,10 +145,10 @@ instance Eq JSLayer where
 
 
 image :: Reflex t => Source Raster Image t -> Layer t Property
-image = Image def . property
+image = Image def . constProperty
 
 tile :: Reflex t => Source Raster Tile t -> Layer t Property
-tile = Tile def . property
+tile = Tile def . constProperty
 
 group
   :: Reflex t

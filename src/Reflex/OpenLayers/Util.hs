@@ -17,7 +17,8 @@
 module Reflex.OpenLayers.Util (
     HasInitialValue (..)
   , Property (..)
-  , property
+  , constProperty
+  , propertyWidget
   , initProperty
   , initPropertyWith
   ) where
@@ -29,7 +30,7 @@ import Reflex.Host.Class
 import Reflex.Dom
 import Data.Dependent.Sum (DSum (..))
 
-import Control.Monad (forM_, when, void, (>=>), (<=<))
+import Control.Monad (forM_, when, void, liftM, (>=>), (<=<))
 import Control.Monad.Ref (MonadRef(readRef), Ref)
 import Control.Exception (finally)
 import Control.Lens
@@ -99,14 +100,19 @@ instance Reflex t => HasSetValue (Property t a) where
   type SetValue (Property t a) = Event t a
   setValue = propertySetValue
 
-property :: Reflex t => a -> Property t a
-property = flip Property never
+constProperty :: Reflex t => a -> Property t a
+constProperty = flip Property never
 
 instance (Reflex t, Default a) => Default (Property t a) where
   def = Property def never
 
 dynFromProp :: MonadHold t m => Property t a -> m (Dynamic t a)
 dynFromProp (Property v e) = holdDyn v e
+
+propertyWidget
+  :: MonadWidget t m => (a -> m (Event t a)) -> Property t a -> m (Event t a)
+propertyWidget go (Property v e) =
+  liftM switchPromptlyDyn $ widgetHold (go v) (fmap go e)
 
 
 initProperty
