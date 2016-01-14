@@ -1,5 +1,6 @@
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
 module Main (main) where
 
@@ -34,7 +35,7 @@ main = mainWidgetWithCss olCss $ mdo
       curValue <- sample (current (mapWidget^.rotation))
       input <- htmlTextInput "number" $ def
         & widgetConfig_initialValue .~ show curValue
-        & attributes .~ constDyn ("step" =: "0.05")
+        & attributes .~ constDyn ("step" =: "0.05" <> "novalidate" =: "true")
         & setValue   .~ fmap show (updated (mapWidget^.rotation))
       return $ fmapMaybe readMay (change input)
 
@@ -42,7 +43,7 @@ main = mainWidgetWithCss olCss $ mdo
       curValue <- sample (current (mapWidget^.resolution))
       input <- htmlTextInput "number" $ def
         & widgetConfig_initialValue .~ show curValue
-        & attributes .~ constDyn ("step" =: "1000")
+        & attributes .~ constDyn ("step" =: "1000" <> "novalidate" =: "true")
         & setValue   .~ fmap show (updated (mapWidget^.resolution))
       return $ fmapMaybe readMay (change input)
 
@@ -50,7 +51,7 @@ main = mainWidgetWithCss olCss $ mdo
       let showCenter c = show (c^.x) ++ ", " ++ show (c^.y)
       dynText =<< mapDyn showCenter (mapWidget^.center)
       el "br" blank
-      let mover = do
+      let applyMove = do
             pixels <- current (value pixelInput)
             curResolution <- current (mapWidget^.resolution)
             curCenter <- current (mapWidget^.center)
@@ -66,7 +67,7 @@ main = mainWidgetWithCss olCss $ mdo
       east <- liftM (fmap (const East)) (button "east")
       west <- liftM (fmap (const West)) (button "west")
       pixelInput <- intWidget $ def & widgetConfig_initialValue .~ Just 10
-      return $ attachWith ($) mover $ leftmost [north, south, east, west]
+      return $ attachWith ($) applyMove $ leftmost [north, south, east, west]
     return (eCenter, eResolution, eRotation)
   return ()
 
@@ -110,7 +111,6 @@ layerWidget
        , Layer t Property)
 layerWidget key layer = el "li" $ do
   curLayer <- sample (current layer)
-  liftIO $ putStrLn "layerWidget"
 
   eVisible <- el "label" $ do
     input <- checkbox (curLayer^.visible.initialValue) $ def
@@ -167,30 +167,30 @@ sourceWidget
   => Property t (Source r k t)
   -> m (Event t (Source r k t))
 sourceWidget p = do
-  val <- holdDyn (p^.initialValue) (p^.setValue)
-  switchPromptly never =<< dyn =<< flip mapDyn val (\curVal ->
-      case curVal of
-        s@ImageWMS{_imageWmsUrl} -> do
-          el "label" $ do
-            text "URL"
-            input <- htmlTextInput "url" $ def
-              & widgetConfig_initialValue .~ _imageWmsUrl
-              & attributes .~ (constDyn ("size" =: "60"))
-            return $ fmap (\v -> s {_imageWmsUrl=v}) (blurOrEnter input)
-        s@TileWMS{_tileWmsUrl} -> do
-          el "label" $ do
-            text "URL"
-            input <- htmlTextInput "url" $ def
-              & widgetConfig_initialValue .~ _tileWmsUrl
-              & attributes .~ (constDyn ("size" =: "60"))
-            return $ fmap (\v -> s {_tileWmsUrl=v}) (blurOrEnter input)
-        s@MapQuest{_mapQuestLayer} -> do
-          el "label" $ do
-            text "Layer"
-            input <- htmlDropdownStatic [minBound..maxBound] show id $ def
-              & widgetConfig_initialValue .~ _mapQuestLayer
-            return $ fmap (\v -> s {_mapQuestLayer=v}) (change input)
-        _ -> return never
-        )
-
+  liftM switchPromptlyDyn $
+    widgetHold (go (p^.initialValue)) (fmap go (p^.setValue))
+  where
+    go :: MonadWidget t m => Source r k t -> m (Event t (Source r k t))
+    go = \case
+      s@ImageWMS{_imageWmsUrl} ->
+        el "label" $ do
+          text "URL"
+          input <- htmlTextInput "url" $ def
+            & widgetConfig_initialValue .~ _imageWmsUrl
+            & attributes .~ (constDyn ("size" =: "60"))
+          return $ fmap (\v -> s {_imageWmsUrl=v}) (blurOrEnter input)
+      s@TileWMS{_tileWmsUrl} ->
+        el "label" $ do
+          text "URL"
+          input <- htmlTextInput "url" $ def
+            & widgetConfig_initialValue .~ _tileWmsUrl
+            & attributes .~ (constDyn ("size" =: "60"))
+          return $ fmap (\v -> s {_tileWmsUrl=v}) (blurOrEnter input)
+      s@MapQuest{_mapQuestLayer} ->
+        el "label" $ do
+          text "Layer"
+          input <- htmlDropdownStatic [minBound..maxBound] show id $ def
+            & widgetConfig_initialValue .~ _mapQuestLayer
+          return $ fmap (\v -> s {_mapQuestLayer=v}) (change input)
+      _ -> return never
 data Direction = North | South | East | West

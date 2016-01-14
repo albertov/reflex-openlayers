@@ -105,36 +105,48 @@ property = flip Property never
 instance (Reflex t, Default a) => Default (Property t a) where
   def = Property def never
 
+dynFromProp :: MonadHold t m => Property t a -> m (Dynamic t a)
+dynFromProp (Property v e) = holdDyn v e
+
 
 initProperty
   :: (MonadWidget t m, PToJSVal o, PToJSVal a, PFromJSVal a)
   => String -> o -> Property t a -> m (Dynamic t a)
-initProperty name o' (Property v e) = do
-  let o = pToJSVal o'
-  (emit, suppress) <- mkSuppressor
-  let update v2
-        = suppress [jsu_|if(`v2!==null) {`o.set(`name, `v2)};|] -- FIXME
-  e' <- wrapOLEvent_ ("change:"++name) o [jsu|$r=`o.get(`name);|]
-  liftIO $ update v
-  performEvent_ $ fmap (liftIO . update) e
-  holdDyn v (leftmost [e, gate emit e'])
+initProperty = initPropertyWith (Just (return . pFromJSVal)) return
 
 initPropertyWith
   :: (MonadWidget t m, PToJSVal o, PToJSVal b)
-  => (a -> m b) -> String -> o -> Property t a -> m (Dynamic t a)
-initPropertyWith build name o' (Property v e) = do
+  => Maybe (JSVal -> m a) -> (a -> m b) -> String -> o -> Property t a
+  -> m (Dynamic t a)
+initPropertyWith mUnBuild build name ob p = do
+  liftWidget <- getLiftWidget
+  liftWidget2 <- getLiftWidget
+  (newSetValue, update) <- case mUnBuild of
+    Nothing -> return (p^.setValue, set)
+    Just unBuild -> do
+      (emit,suppress) <- mkSuppressor
+      eChangeJs <- wrapOLEvent_ ("change:"++name) ob [jsu|$r=`ob.get(`name);|]
+      eChange <- performEvent $
+        fmap (liftWidget2 . unBuild) (gate emit eChangeJs)
+      return (leftmost [p^.setValue, eChange], suppress . set)
+  liftIO . update =<< build (p^.initialValue)
+  performEvent_ $ fmap (liftIO . update <=< liftWidget . build) (p^.setValue)
+  dynFromProp (p & setValue .~ newSetValue)
+  where
+    set :: PToJSVal c => c -> IO ()
+    set v = [jsu_|if(`v!==null) {`ob.set(`name, `v)};|]
+
+getLiftWidget
+  :: MonadWidget t m => m (m a -> WidgetHost m a)
+getLiftWidget = do
   doc <- askDocument
   runWidget <- getRunWidget
-  let o = pToJSVal o'
-      update v2 = [jsu_|if(`v2!==null) {`o.set(`name, `v2)};|] -- FIXME
-      liftWidget a = do
-        Just df <- liftIO $ createDocumentFragment doc
-        (result, postBuild, _) <- runWidget df a
-        postBuild
-        return result
-  liftIO . update =<< build v
-  performEvent_ $ fmap (liftIO . update <=< liftWidget . build) e
-  holdDyn v e
+  return $ \act -> do
+    Just df <- liftIO $ createDocumentFragment doc
+    (result, postBuild, _) <- runWidget df act
+    postBuild
+    return result
+
 
 mkSuppressor
   :: MonadWidget t m
