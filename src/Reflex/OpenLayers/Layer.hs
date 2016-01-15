@@ -11,7 +11,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
 
 module Reflex.OpenLayers.Layer (
@@ -40,21 +39,17 @@ module Reflex.OpenLayers.Layer (
 
 
 import Reflex.OpenLayers.Source
+import Reflex.OpenLayers.Collection
 import Reflex.OpenLayers.Util
 
 import Reflex
 import Reflex.Dom
 
-import Data.Default (Default(def))
+import Data.Default (Default)
 import qualified Data.Map as M
-import Data.Monoid
-import Data.Maybe
-import Data.These
-import Data.Align
 import Control.Lens
-import Control.Monad (when, liftM, forM, forM_)
 import Control.Monad.IO.Class (MonadIO(liftIO))
-import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
+import GHCJS.Marshal (ToJSVal, FromJSVal)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types
 import GHCJS.Foreign.QQ
@@ -136,14 +131,6 @@ instance HasMaxResolution (Layer t p) (p t (Maybe Double)) where
   maxResolution = base . maxResolution
 
 
-newtype JSLayer = JSLayer JSVal
-  deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
-instance IsJSVal JSLayer
-
-instance Eq JSLayer where
-  a == b = [jsu'|$r=(`a===`b);|]
-
-
 image :: Reflex t => Source Raster Image t -> Layer t Property
 image = Image def . constProperty
 
@@ -155,7 +142,7 @@ group
   => Dynamic t (LayerSet (Layer t Property)) -> Layer t Property
 group = Group def
 
-mkLayer :: MonadWidget t m => Layer t Property -> m (JSLayer, Layer t Dynamic)
+mkLayer :: MonadWidget t m => Layer t Property -> m (JSVal, Layer t Dynamic)
 mkLayer lyr = do
   case lyr of
     Image{_layerImageSource} -> do
@@ -185,21 +172,3 @@ mkLayer lyr = do
                 <*> initProperty "extent" r (b^.extent)
                 <*> initProperty "minResolution" r (b^.minResolution)
                 <*> initProperty "maxResolution" r (b^.maxResolution)
-
-newtype Collection = Collection JSVal
-  deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
-instance IsJSVal Collection
-
-mkCollection
-  :: (MonadWidget t m, PToJSVal a, Eq a)
-  => Dynamic t (M.Map Int a) -> m Collection
-mkCollection items = do
-  c <- liftIO [jsu|$r=new ol.Collection();|]
-  let eOldNew = attach (current items) (updated items)
-  performEvent_ $ ffor eOldNew  $ \(cur, new) -> liftIO $ do
-    forM_ (align cur new) $ \case
-      This old                 -> [js_|`c.remove(`old);|]
-      That new                 -> [js_|`c.push(`new);|]
-      These old new | old/=new -> [js_|`c.remove(`old);`c.push(`new);|]
-      _                        -> return ()
-  return c

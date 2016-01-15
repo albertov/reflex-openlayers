@@ -37,6 +37,7 @@ library
     , Reflex.OpenLayers.Widgets
     , Reflex.OpenLayers.Layer
     , Reflex.OpenLayers.Event
+    , Reflex.OpenLayers.Collection
     , Reflex.OpenLayers.Util
   ghc-prof-options: -fprof-auto
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields

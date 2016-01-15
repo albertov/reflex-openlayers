@@ -120,10 +120,6 @@ instance HasResolution (MapConfig t) (Property t Double) where
 instance HasRotation (MapConfig t) (Property t Rotation) where
   rotation = view . rotation
 
-newtype JSMap = JSMap JSVal
-  deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
-instance IsJSVal JSMap
-
 instance HasAttributes (MapConfig t) where
   type Attrs (MapConfig t) = Dynamic t (M.Map String String)
   attributes = lens _mapConfig_attributes (\o v -> o {_mapConfig_attributes=v})
@@ -140,12 +136,12 @@ data Map t
   = Map {
       _mapView   :: View t Dynamic
     , _mapLayers :: Dynamic t (LayerSet (Layer t Dynamic))
-    , _mapJsVal  :: JSMap
+    , _mapJsVal  :: JSVal
     }
 makeFields ''Map
 
 instance PToJSVal (Map t) where
-  pToJSVal = jsval . _mapJsVal
+  pToJSVal = _mapJsVal
 
 instance ToJSVal (Map t) where
   toJSVal = return . pToJSVal

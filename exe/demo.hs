@@ -25,8 +25,8 @@ main = mainWidgetWithCss olCss $ mdo
     & layers              .~ dynLayers
     & attributes          .~ constDyn ("style"=:"height:300px")
 
-  dynLayers' <- layerListWidget (constDyn initialLayers)
-  dynLayers <- layerListWidget dynLayers'
+  dynLayers <- layerListWidget (constDyn initialLayers)
+  --dynLayers <- layerListWidget dynLayers'
 
   (eCenter, eResolution, eRotation) <- dtdd "view" $ do
     eRotation <- dtdd "rotation" $ do
@@ -77,12 +77,13 @@ initialLayers = fromList
         "http://demo.boundlessgeo.com/geoserver/wms"
         ("LAYERS" =: "topp:states")
   , group $ constDyn $ fromList [
-        tile $ tileWMS
-          "http://demo.boundlessgeo.com/geoserver/ne/wms"
+      tile $
+        tileWMS
+        "http://demo.boundlessgeo.com/geoserver/ne/wms"
           (   "LAYERS" =: "ne:ne_10m_admin_0_countries"
            <> "TILED" =: "true")
-      , tile osm
-      ]
+    , tile osm
+    ]
   , tile $ mapQuest Satellite
 
   ]
