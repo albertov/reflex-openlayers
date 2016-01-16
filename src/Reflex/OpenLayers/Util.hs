@@ -21,6 +21,7 @@ module Reflex.OpenLayers.Util (
   , propertyWidget
   , initProperty
   , initPropertyWith
+  , pushToMap
   ) where
 
 import Reflex.OpenLayers.Event
@@ -165,3 +166,8 @@ mkSuppressor = do
   let setEmit v = mapM_ (\t -> postGui $ runWithActions [t:=>v]) =<< readRef r
       suppress x = setEmit False >> x `finally` setEmit True
   return (emit, suppress)
+
+pushToMap :: (Enum k, Ord k) => a -> M.Map k a -> M.Map k a
+pushToMap v m = case M.maxViewWithKey m of
+  Nothing          -> M.singleton (toEnum 0) v
+  Just ((k, _), _) -> M.insert (succ k) v m

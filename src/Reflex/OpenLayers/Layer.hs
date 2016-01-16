@@ -100,9 +100,7 @@ fromList :: [a] -> LayerSet a
 fromList = M.fromList . zip [0..]
 
 pushLayer :: a -> LayerSet a -> LayerSet a
-pushLayer v m = case M.maxViewWithKey m of
-  Nothing          -> M.singleton (toEnum 0) v
-  Just ((k, _), _) -> M.insert (succ k) v m
+pushLayer = pushToMap
 
 
 data Layer t p
