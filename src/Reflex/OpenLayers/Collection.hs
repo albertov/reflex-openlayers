@@ -22,39 +22,40 @@ import qualified Data.Map as M
 import Data.These
 import Data.Align
 import Control.Lens
-import Control.Monad (forM_)
+import Control.Monad
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types
 import GHCJS.Foreign.QQ
 
-data Collection t k
+data Collection t k a
   = Collection {
       _collectionJsVal :: JSVal
-    , _collectionItems :: Dynamic t (M.Map k JSVal)
+    , _collectionItems :: Dynamic t (M.Map k a)
     }
 makeFields ''Collection
 
-instance PToJSVal (Collection t k) where
+instance PToJSVal (Collection t k a) where
   pToJSVal = _collectionJsVal
 
-instance ToJSVal (Collection t k) where
+instance ToJSVal (Collection t k a) where
   toJSVal = return . pToJSVal
 
 mkCollection
-  :: (Ord k, Enum k, MonadWidget t m)
-  => Dynamic t (M.Map k JSVal) -> m (Collection t k)
-mkCollection dynItems = mdo
+  :: (Show k, Ord k, Enum k, ToJSVal a, FromJSVal a, MonadWidget t m)
+  => Dynamic t (M.Map k a) -> m (Collection t k a)
+mkCollection inMap = mdo
   c <- liftIO [jsu|$r=new ol.Collection();|]
   eAdd    <- wrapOLEvent "add" c (\(e::JSVal) -> [jsu|$r=`e.element|])
   eRemove <- wrapOLEvent "remove" c (\(e::JSVal) -> [jsu|$r=`e.element|])
+  dynItems <- mapDynIO (mapM toJSVal) inMap
   curItems <- sample (current dynItems)
-  dynItemsOut <- foldDyn ($) curItems $ mergeWith (.) [
+  jsOut <- foldDyn ($) curItems $ mergeWith (.) [
       attachWith (\m n -> case M.foldlWithKey (folder n) Nothing m of
                             Just k -> M.delete k
                             Nothing -> id
-                 ) (current dynItemsOut) eRemove
+                 ) (current jsOut) eRemove
     , fmap pushToMap eAdd
     ]
   let eOldNew = attach (current dynItems) (updated dynItems)
@@ -63,8 +64,12 @@ mkCollection dynItems = mdo
       This old                      -> [js_|`c.remove(`old);|]
       That new                      -> [js_|`c.push(`new);|]
       These _ _                     -> return ()
+  dynItemsOut <- mapDynIO (mapM fromJS') jsOut
   return $ Collection c dynItemsOut
   where
+    fromJS' :: FromJSVal a => JSVal -> IO a
+    fromJS' = maybe (fail "Collection: could not convert from JS") return
+            <=< fromJSVal
     jEq :: JSVal -> JSVal -> Bool
     jEq a b = [jsu'|$r=(`a===`b);|]
     folder needle Nothing k v

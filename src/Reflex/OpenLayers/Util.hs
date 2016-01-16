@@ -22,6 +22,7 @@ module Reflex.OpenLayers.Util (
   , initProperty
   , initPropertyWith
   , pushToMap
+  , mapDynIO
   ) where
 
 import Reflex.OpenLayers.Event
@@ -171,3 +172,10 @@ pushToMap :: (Enum k, Ord k) => a -> M.Map k a -> M.Map k a
 pushToMap v m = case M.maxViewWithKey m of
   Nothing          -> M.singleton (toEnum 0) v
   Just ((k, _), _) -> M.insert (succ k) v m
+
+
+mapDynIO :: MonadWidget t m => (a -> IO b) -> Dynamic t a -> m (Dynamic t b)
+mapDynIO f d = do
+  initial <- liftIO . f =<< sample (current d)
+  eChange <- performEvent $ fmap (liftIO . f) (updated d)
+  holdDyn initial eChange
