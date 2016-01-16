@@ -35,6 +35,7 @@ module Reflex.OpenLayers.Source (
   , mapQuest
   , osm
   , raster
+  , vectorSource
   , anySource
 
   , mkSource -- internal
@@ -43,6 +44,7 @@ module Reflex.OpenLayers.Source (
 import Reflex
 import Reflex.Dom
 import Reflex.OpenLayers.Util
+import Reflex.OpenLayers.Collection
 
 import Data.Word (Word8)
 import Data.Default(Default)
@@ -114,6 +116,10 @@ data Source (r::SourceK) (k::TileK) t where
     , _rasterSources   :: s
     } -> Source Raster Image t
 
+  VectorSource :: (Enum key, Ord key, ToJSVal val, FromJSVal val) => {
+      _vectorFeatures  :: Collection t key val
+    } -> Source Vector Image t
+
 newtype JSSource = JSSource JSVal
   deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
 instance IsJSVal JSSource
@@ -156,6 +162,11 @@ osm = OSM
 raster :: RasterOperation o s => o -> s -> Source Raster Image t
 raster op = Raster op
 
+vectorSource
+  :: (Enum key, Ord key, ToJSVal val, FromJSVal val)
+  => Collection t key val -> Source Vector Image t
+vectorSource = VectorSource
+
 mkSource :: MonadWidget t m => Source r k t -> m JSVal
 mkSource s = do
   case s of
@@ -184,5 +195,8 @@ mkSource s = do
                                      , operation:`cb
                                      , threads: 0
                                      , operationType: `typ});|]
+
+    VectorSource{_vectorFeatures} -> do
+      liftIO [jsu|$r=new ol.source.Vector({features:`_vectorFeatures});|]
 
 makeFields ''Pixel

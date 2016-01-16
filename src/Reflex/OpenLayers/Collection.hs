@@ -9,7 +9,7 @@
 module Reflex.OpenLayers.Collection (
     Collection
   , HasItems (..)
-  , mkCollection
+  , collection
 ) where
 
 import Reflex.OpenLayers.Util
@@ -42,10 +42,10 @@ instance PToJSVal (Collection t k a) where
 instance ToJSVal (Collection t k a) where
   toJSVal = return . pToJSVal
 
-mkCollection
+collection
   :: (Show k, Ord k, Enum k, ToJSVal a, FromJSVal a, MonadWidget t m)
   => Dynamic t (M.Map k a) -> m (Collection t k a)
-mkCollection inMap = mdo
+collection inMap = mdo
   c <- liftIO [jsu|$r=new ol.Collection();|]
   eAdd    <- wrapOLEvent "add" c (\(e::JSVal) -> [jsu|$r=`e.element|])
   eRemove <- wrapOLEvent "remove" c (\(e::JSVal) -> [jsu|$r=`e.element|])

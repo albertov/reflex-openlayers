@@ -21,6 +21,7 @@ module Reflex.OpenLayers.Layer (
   , image
   , tile
   , group
+  , vector
   , mkLayer
   , fromList
   , pushLayer
@@ -113,6 +114,9 @@ data Layer t p
   | Group { _layerBase   :: LayerBase t p
           , _layerLayers :: Dynamic t (LayerSet (Layer t p))
           }
+  | Vector { _layerBase   :: LayerBase t p
+           , _layerVectorSource :: p t (Source Vector Image t)
+           }
 makeFields ''Layer
 
 instance HasOpacity (Layer t p) (p t Opacity) where
@@ -135,6 +139,9 @@ image = Image def . constProperty
 tile :: Reflex t => Source Raster Tile t -> Layer t Property
 tile = Tile def . constProperty
 
+vector :: Reflex t => Source Vector Image t -> Layer t Property
+vector = Vector def . constProperty
+
 group
   :: Reflex t
   => Dynamic t (LayerSet (Layer t Property)) -> Layer t Property
@@ -155,10 +162,16 @@ mkLayer lyr = do
         initPropertyWith Nothing mkSource "source" j _layerTileSource
       b <- updateBase j (lyr^.base)
       return (j, Tile b dynSource)
+    Vector{_layerVectorSource} -> do
+      j <- liftIO [jsu|$r=new ol.layer.Vector();|]
+      dynSource <-
+        initPropertyWith Nothing mkSource "source" j _layerVectorSource
+      b <- updateBase j (lyr^.base)
+      return (j, Vector b dynSource)
     Group{_layerLayers} -> do
       dynMkLayers <- list _layerLayers (\dL -> sample (current dL) >>= mkLayer)
       dynLayers <- mapDyn (M.map snd) dynMkLayers
-      c <- mkCollection =<< mapDyn (M.map fst) dynMkLayers
+      c <- collection =<< mapDyn (M.map fst) dynMkLayers
       j <- liftIO [jsu|$r=new ol.layer.Group({layers:`c});|]
       b <- updateBase j (lyr^.base)
       return (j, Group b dynLayers)
