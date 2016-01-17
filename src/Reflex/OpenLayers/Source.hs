@@ -38,6 +38,8 @@ module Reflex.OpenLayers.Source (
   , vectorSource
   , anySource
 
+  , featureCollection
+
   , mkSource -- internal
 ) where
 
@@ -46,6 +48,9 @@ import Reflex.Dom
 import Reflex.OpenLayers.Util
 import Reflex.OpenLayers.Collection
 
+import Data.Aeson
+import Data.Aeson.Types (parseMaybe)
+import Data.Proxy
 import Data.Word (Word8)
 import Data.Default(Default)
 import Data.Typeable (Typeable, cast)
@@ -59,6 +64,12 @@ import GHCJS.Types (JSVal, IsJSVal, JSString, jsval)
 import GHCJS.DOM.Types
 import GHCJS.Foreign.QQ
 import GHCJS.Foreign.Callback
+import Sigym4.Geometry.Types hiding (Raster, Pixel)
+import Sigym4.Geometry.Json (
+    ToFeatureProperties
+  , FromFeatureProperties
+  , toJSON_crs
+  )
 
 data TileK = TileK | ImageK
 type Tile = 'TileK
@@ -116,8 +127,8 @@ data Source (r::SourceK) (k::TileK) t where
     , _rasterSources   :: s
     } -> Source Raster Image t
 
-  VectorSource :: (Enum key, Ord key, ToJSVal val, FromJSVal val) => {
-      _vectorFeatures  :: Collection t key val
+  VectorSource :: {
+      _vectorFeatures  :: Collection t key (FeatureT g v s a)
     } -> Source Vector Image t
 
 newtype JSSource = JSSource JSVal
@@ -163,8 +174,7 @@ raster :: RasterOperation o s => o -> s -> Source Raster Image t
 raster op = Raster op
 
 vectorSource
-  :: (Enum key, Ord key, ToJSVal val, FromJSVal val)
-  => Collection t key val -> Source Vector Image t
+  :: Collection t key (FeatureT g v srid a) -> Source Vector Image t
 vectorSource = VectorSource
 
 mkSource :: MonadWidget t m => Source r k t -> m JSVal
@@ -198,5 +208,33 @@ mkSource s = do
 
     VectorSource{_vectorFeatures} -> do
       liftIO [jsu|$r=new ol.source.Vector({features:`_vectorFeatures});|]
+
+featureCollection
+  :: ( MonadWidget t m, Ord k, Enum k, KnownNat srid
+     , FromFeatureProperties d, ToFeatureProperties d
+     , FromJSON (g v srid), ToJSON (g v srid)
+     )
+  => Dynamic t (M.Map k (FeatureT g v srid d))
+  -> m (Collection t k (FeatureT g v srid d))
+featureCollection = collectionWith toJSVal_feature fromJSVal_feature
+
+toJSVal_feature
+  :: forall g v srid d.
+     ( KnownNat srid
+     , ToJSON (g v srid)
+     , ToFeatureProperties d
+     )
+  => FeatureT g v srid d -> IO JSVal
+toJSVal_feature f = do
+  jsF <- toJSVal (toJSON_crs (Proxy::Proxy srid) f)
+  [js|$r=(new ol.format.GeoJSON()).readFeature(`jsF);|]
+
+fromJSVal_feature
+  :: ( FromFeatureProperties d , FromJSON (g v srid))
+  => JSVal -> IO (Maybe (FeatureT g v srid d))
+fromJSVal_feature j = do
+  geoJ <- [js|$r=(new ol.format.GeoJSON()).writeFeatureObject(`j);|]
+  val <- fromJSVal geoJ
+  return (val >>= parseMaybe parseJSON)
 
 makeFields ''Pixel

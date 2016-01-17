@@ -10,6 +10,7 @@ module Reflex.OpenLayers.Collection (
     Collection
   , HasItems (..)
   , collection
+  , collectionWith
 ) where
 
 import Reflex.OpenLayers.Util
@@ -43,13 +44,19 @@ instance ToJSVal (Collection t k a) where
   toJSVal = return . pToJSVal
 
 collection
-  :: (Show k, Ord k, Enum k, ToJSVal a, FromJSVal a, MonadWidget t m)
+  :: (Ord k, Enum k, ToJSVal a, FromJSVal a, MonadWidget t m)
   => Dynamic t (M.Map k a) -> m (Collection t k a)
-collection inMap = mdo
+collection = collectionWith toJSVal fromJSVal
+
+collectionWith
+  :: (Ord k, Enum k, MonadWidget t m)
+  => (a -> IO JSVal) -> (JSVal -> IO (Maybe a)) -> Dynamic t (M.Map k a)
+  -> m (Collection t k a)
+collectionWith toJS fromJS inMap = mdo
   c <- liftIO [jsu|$r=new ol.Collection();|]
   eAdd    <- wrapOLEvent "add" c (\(e::JSVal) -> [jsu|$r=`e.element|])
   eRemove <- wrapOLEvent "remove" c (\(e::JSVal) -> [jsu|$r=`e.element|])
-  dynItems <- mapDynIO (mapM toJSVal) inMap
+  dynItems <- mapDynIO (mapM toJS) inMap
   curItems <- sample (current dynItems)
   jsOut <- foldDyn ($) curItems $ mergeWith (.) [
       attachWith (\m n -> case M.foldlWithKey (folder n) Nothing m of
@@ -67,9 +74,8 @@ collection inMap = mdo
   dynItemsOut <- mapDynIO (mapM fromJS') jsOut
   return $ Collection c dynItemsOut
   where
-    fromJS' :: FromJSVal a => JSVal -> IO a
-    fromJS' = maybe (fail "Collection: could not convert from JS") return
-            <=< fromJSVal
+    fromJS' =
+      maybe (fail "Collection: could not convert from JS") return <=< fromJS
     jEq :: JSVal -> JSVal -> Bool
     jEq a b = [jsu'|$r=(`a===`b);|]
     folder needle Nothing k v

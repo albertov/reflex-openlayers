@@ -31,6 +31,8 @@ library
     , lens
     , safe
     , bytestring
+    , aeson
+    , sigym4-geometry
   exposed-modules:
       Reflex.OpenLayers
     , Reflex.OpenLayers.Source
