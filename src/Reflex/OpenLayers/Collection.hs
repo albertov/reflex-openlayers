@@ -22,6 +22,7 @@ import Reflex.Dom
 import qualified Data.Map as M
 import Data.These
 import Data.Align
+import Data.Maybe
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class (MonadIO(liftIO))
@@ -53,32 +54,37 @@ collectionWith
   => (a -> IO JSVal) -> (JSVal -> IO (Maybe a)) -> Dynamic t (M.Map k a)
   -> m (Collection t k a)
 collectionWith toJS fromJS inMap = mdo
-  dynItems <- mapDynIO (mapM toJS) inMap
-  initial <- liftIO . toJSVal =<< fmap M.elems (sample (current dynItems))
+  dynItems <- mapDynIO (mapM (\o -> toJS o >>= \jo -> return (Just o,jo)))
+              inMap
+  initial <- liftIO . toJSVal
+              =<< fmap (map snd . M.elems) (sample (current dynItems))
   c <- liftIO [jsu|$r=new ol.Collection(`initial);|]
   eAdd    <- wrapOLEvent "add" c (\(e::JSVal) -> [jsu|$r=`e.element|])
   eRemove <- wrapOLEvent "remove" c (\(e::JSVal) -> [jsu|$r=`e.element|])
   curItems <- sample (current dynItems)
-  jsOut <- foldDyn ($) curItems $ mergeWith (.) [
+  jsOut <- mapDynIO (mapM fromJS') =<< (foldDyn ($) curItems $ mergeWith (.) [
       attachWith (\m n -> case M.foldlWithKey (folder n) Nothing m of
                             Just k -> M.delete k
                             Nothing -> id
                  ) (current jsOut) eRemove
-    , fmap pushToMap eAdd
-    ]
+    , fmap (\j -> pushToMap (Nothing,j)) eAdd
+    ])
+  dynItemsOut <- mapDyn (M.map (fromMaybe fromJSErr . fst)) jsOut
   let eOldNew = attach (current dynItems) (updated dynItems)
   performEvent_ $ ffor eOldNew  $ \(curVals, newVals) -> liftIO $ do
     forM_ (align curVals newVals) $ \case
-      This old                      -> [js_|`c.remove(`old);|]
-      That new                      -> [js_|`c.push(`new);|]
+      This (_,old)                  -> [js_|`c.remove(`old);|]
+      That (_,new)                  -> [js_|`c.push(`new);|]
       These _ _                     -> return ()
-  dynItemsOut <- mapDynIO (mapM fromJS') jsOut
   return $ Collection c dynItemsOut
   where
-    fromJS' =
-      maybe (fail "Collection: could not convert from JS") return <=< fromJS
+    fromJS' i@(Just _, _) = return i
+    fromJS' (Nothing,j)   = do
+      mH <- fromJS j
+      return (mH, j)
+    fromJSErr = error "Collection: could not convert from JS"
     jEq :: JSVal -> JSVal -> Bool
     jEq a b = [jsu'|$r=(`a===`b);|]
     folder needle Nothing k v
-      | v `jEq` needle = Just k
-    folder _ acc _ _   = acc
+      | snd v `jEq` needle = Just k
+    folder _ acc _ _       = acc
