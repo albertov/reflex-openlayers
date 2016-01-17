@@ -23,6 +23,7 @@ module Reflex.OpenLayers.Util (
   , initPropertyWith
   , pushToMap
   , mapDynIO
+  , mkSuppressor
   ) where
 
 import Reflex.OpenLayers.Event
@@ -158,7 +159,7 @@ getLiftWidget = do
 
 mkSuppressor
   :: MonadWidget t m
-  => m (Behavior t Bool, IO () -> IO ())
+  => m (Behavior t Bool, IO a -> IO a)
 mkSuppressor = do
   (eEmit, r) <- newEventWithTriggerRef
   emit <- hold True eEmit

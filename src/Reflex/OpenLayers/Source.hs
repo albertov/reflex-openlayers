@@ -39,6 +39,7 @@ module Reflex.OpenLayers.Source (
   , anySource
 
   , featureCollection
+  , featureCollection2
 
   , mkSource -- internal
 ) where
@@ -61,7 +62,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
 import GHCJS.Types (JSVal, IsJSVal, JSString, jsval)
-import GHCJS.DOM.Types
+import GHCJS.DOM.Types hiding (Event)
 import GHCJS.Foreign.QQ
 import GHCJS.Foreign.Callback
 import Sigym4.Geometry.Types hiding (Raster, Pixel)
@@ -217,6 +218,17 @@ featureCollection
   => Dynamic t (M.Map k (FeatureT g v srid d))
   -> m (Collection t k (FeatureT g v srid d))
 featureCollection = collectionWith toJSVal_feature fromJSVal_feature
+
+featureCollection2
+  :: ( MonadWidget t m, Ord k, Enum k, KnownNat srid
+     , FromFeatureProperties d, ToFeatureProperties d
+     , FromJSON (g v srid), ToJSON (g v srid)
+     )
+  => M.Map k (FeatureT g v srid d)
+  -> Event t (M.Map k (Maybe (FeatureT g v srid d)))
+  -> m (Collection t k (FeatureT g v srid d))
+featureCollection2 =
+  collectionWith2 toJSVal_feature fromJSVal_feature (const (return never))
 
 toJSVal_feature
   :: forall g v srid d.
