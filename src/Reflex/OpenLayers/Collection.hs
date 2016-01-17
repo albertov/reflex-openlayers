@@ -53,10 +53,11 @@ collectionWith
   => (a -> IO JSVal) -> (JSVal -> IO (Maybe a)) -> Dynamic t (M.Map k a)
   -> m (Collection t k a)
 collectionWith toJS fromJS inMap = mdo
-  c <- liftIO [jsu|$r=new ol.Collection();|]
+  dynItems <- mapDynIO (mapM toJS) inMap
+  initial <- liftIO . toJSVal =<< fmap M.elems (sample (current dynItems))
+  c <- liftIO [jsu|$r=new ol.Collection(`initial);|]
   eAdd    <- wrapOLEvent "add" c (\(e::JSVal) -> [jsu|$r=`e.element|])
   eRemove <- wrapOLEvent "remove" c (\(e::JSVal) -> [jsu|$r=`e.element|])
-  dynItems <- mapDynIO (mapM toJS) inMap
   curItems <- sample (current dynItems)
   jsOut <- foldDyn ($) curItems $ mergeWith (.) [
       attachWith (\m n -> case M.foldlWithKey (folder n) Nothing m of
