@@ -24,6 +24,7 @@ module Reflex.OpenLayers.Util (
   , pushToMap
   , mapDynIO
   , mkSuppressor
+  , getLiftWidget
   ) where
 
 import Reflex.OpenLayers.Event

@@ -47,6 +47,7 @@ module Reflex.OpenLayers.Source (
 import Reflex
 import Reflex.Dom
 import Reflex.OpenLayers.Util
+import Reflex.OpenLayers.Event
 import Reflex.OpenLayers.Collection
 
 import Data.Aeson
@@ -221,14 +222,20 @@ featureCollection = collectionWith toJSVal_feature fromJSVal_feature
 
 featureCollection2
   :: ( MonadWidget t m, Ord k, Enum k, KnownNat srid
-     , FromFeatureProperties d, ToFeatureProperties d
+     , VectorSpace v , FromFeatureProperties d, ToFeatureProperties d
      , FromJSON (g v srid), ToJSON (g v srid)
      )
   => M.Map k (FeatureT g v srid d)
   -> Event t (M.Map k (Maybe (FeatureT g v srid d)))
   -> m (Collection t k (FeatureT g v srid d))
 featureCollection2 =
-  collectionWith2 toJSVal_feature fromJSVal_feature (const (return never))
+  collectionWith2 toJSVal_feature fromJSVal_feature $ \(h,f) -> do
+    geom :: JSVal <- liftIO [jsu|$r=`f.getGeometry();|]
+    wrapOLEvent_ "change" geom $ do
+      geom' <- [jsu|$r=`f.getGeometry();|]
+      newGeom <- maybe (fail "could not read geometry") return
+                  =<< fromJSVal_geometry geom'
+      return $ h & geometry .~ newGeom
 
 toJSVal_feature
   :: forall g v srid d.
@@ -246,6 +253,14 @@ fromJSVal_feature
   => JSVal -> IO (Maybe (FeatureT g v srid d))
 fromJSVal_feature j = do
   geoJ <- [js|$r=(new ol.format.GeoJSON()).writeFeatureObject(`j);|]
+  val <- fromJSVal geoJ
+  return (val >>= parseMaybe parseJSON)
+
+fromJSVal_geometry
+  :: (VectorSpace v, KnownNat srid, FromJSON (g v srid))
+  => JSVal -> IO (Maybe (g v srid))
+fromJSVal_geometry j = do
+  geoJ <- [js|$r=(new ol.format.GeoJSON()).writeGeometryObject(`j);|]
   val <- fromJSVal geoJ
   return (val >>= parseMaybe parseJSON)
 

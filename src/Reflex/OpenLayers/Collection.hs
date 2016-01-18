@@ -96,12 +96,13 @@ collectionWith2
   :: forall k t m a. (Ord k, Enum k, MonadWidget t m)
   => (a -> IO JSVal)
   -> (JSVal -> IO (Maybe a))
-  -> (JSVal -> m (Event t a))
+  -> ((a, JSVal) -> m (Event t a))
   -> M.Map k a
   -> Event t (M.Map k (Maybe a))
   -> m (Collection t k a)
 collectionWith2 toJS fromJS mkEvent initialItems eUpdate = mdo
-  initialItems2 <- mapM toJS2 initialItems
+  initialItems2 <- mapM (\o -> liftIO (toJS o >>= \j -> return (o,j)))
+                        initialItems
   initialJS <- liftIO (toJSVal (map snd (M.elems initialItems2)))
   col <- liftIO [jsu|$r=new ol.Collection(`initialJS);|]
   (eS,suppress) <- mkSuppressor
@@ -113,21 +114,21 @@ collectionWith2 toJS fromJS mkEvent initialItems eUpdate = mdo
   eDel <- performEvent $ attachWith onDel (current dynItems2) eDel'
   eUpdate2 <- performEvent $
       attachWith (onUpdate suppress col) (current dynItems2) eUpdate
-  let eChanges = mconcat [eDel, eAdd, eUpdate2]
-  dynItemsWithEvents <- listWithKey' initialItems2 eChanges mkChild
-  dynItems2 <- mapDyn (M.map snd) dynItemsWithEvents
+  let eChanges = mconcat [ eDel
+                         , eAdd
+                         , eUpdate2
+                         ]
+  dynItems2 <- liftM joinDynThroughMap $
+                    listWithKey' initialItems2 eChanges mkChild
   dynItems <- mapDyn (M.map fst) dynItems2
-  {- TODO Handle internal events
-  eChilds <- fmap (fanMap . switchPromptlyDyn) $
-               mapDyn (mergeMap . M.map fst) dynItemsWithEvents
-  -}
   return (Collection col dynItems)
   where
-    mkChild _ v _ = do
-      ev <- mkEvent (snd v)
-      return (ev, v)
-    toJS2 o = liftIO (toJS o >>= \j -> return (o,j))
-    onAdd
+    mkChild k v eUp = do
+      ev <- liftM switchPromptlyDyn $
+        widgetHold (mkEvent' v) (fmap mkEvent' eUp)
+      holdDyn v $ leftmost [ev, eUp]
+    mkEvent' i@(_,j) = liftM (fmap (\v -> (v,j))) (mkEvent i)
+    onAdd, onDel
       :: M.Map k (a, JSVal)
       -> JSVal
       -> WidgetHost m (M.Map k (Maybe (a, JSVal)))
@@ -153,7 +154,7 @@ collectionWith2 toJS fromJS mkEvent initialItems eUpdate = mdo
           (Just (_,old), Nothing) -> do
             [js_|`col.remove(`old);|]
             return (M.insert k Nothing ret, prev)
-          (Just (_,old), Just newH) -> do
+          (Just (_,old), Just newH) -> do --FIXME
             new <- toJS newH
             [js_|var arr = `col.getArray();
                  for (var i=0, l=arr.length; i<l; i++) {
