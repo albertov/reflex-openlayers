@@ -2,6 +2,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Main (main) where
 
 import Reflex.Dom
@@ -9,14 +10,17 @@ import Reflex.Dom.Contrib.Widgets.Common
 import Reflex.OpenLayers
 import Reflex.OpenLayers.Widgets
 
+import Data.FileEmbed (embedFile)
+
 import Control.Monad
 import Control.Lens ((^.), (^?), (^?!), (%~))
 import qualified Data.Map as M
 import Data.Monoid ((<>))
 import Safe (readMay)
 
+
 main :: IO ()
-main = mainWidgetWithCss olCss $ mdo
+main = mainWidgetWithCss $(embedFile "static/ol.css") $ mdo
   mapWidget <- olMap $ def
     & center.initialValue .~ Coordinates (-10997148) 4569099
     & center.setValue     .~ eCenter

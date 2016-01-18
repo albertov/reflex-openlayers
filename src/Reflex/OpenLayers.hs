@@ -30,7 +30,6 @@ module Reflex.OpenLayers (
   , HasSetValue (..)
   , HasUpdateSize (..)
   , olMap
-  , olCss
   , constProperty
 
   , module Reflex.OpenLayers.Layer -- FIXME
@@ -55,7 +54,6 @@ import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.ByteString (ByteString)
 import Data.Default (Default)
 import Data.Dependent.Sum (DSum (..))
-import Data.FileEmbed (embedFile)
 import qualified Data.Map as M
 import Data.Maybe (fromJust)
 
@@ -176,11 +174,3 @@ mkView v = do
              <*> initProperty "resolution" j (v^.resolution)
              <*> initProperty "rotation"   j (v^.rotation)
   return (j,jv)
-
-
--- CSS
---
-
-
-olCss :: ByteString
-olCss = $(embedFile "static/ol.css")

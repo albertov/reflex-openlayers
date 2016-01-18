@@ -11,6 +11,17 @@ Category: FRP
 Build-type: Simple
 Cabal-version: >=1.10
 
+flag include-javascript
+  description: Include OpenLayers javascript (plays bad with template haskell)
+  default: False
+  manual: True
+
+flag examples
+  description: Build example app
+  default: False
+  manual: True
+
+
 library
   hs-source-dirs: src
   build-depends:
@@ -26,7 +37,6 @@ library
     , transformers
     , data-default
     , dependent-sum
-    , file-embed
     , these
     , lens
     , safe
@@ -43,7 +53,8 @@ library
     , Reflex.OpenLayers.Util
   ghc-prof-options: -fprof-auto
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
-  js-sources: static/ol.js
+  if flag(include-javascript)
+    js-sources: static/ol.js
   default-language: Haskell2010
 
 executable reflex-openlayers-demo
@@ -59,8 +70,12 @@ executable reflex-openlayers-demo
     , reflex-openlayers
     , containers
     , transformers
+    , file-embed
     , safe
   default-language: Haskell2010
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
-  cpp-options: -DGHCJS_BROWSER
+  if !flag(examples)
+    Buildable: False
+  if flag(examples) && !flag(include-javascript)
+    js-sources: static/ol.js
   --cpp-options: -DGHCJS_TRACE_WEAK

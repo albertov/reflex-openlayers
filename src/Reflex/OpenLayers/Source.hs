@@ -39,7 +39,6 @@ module Reflex.OpenLayers.Source (
   , anySource
 
   , featureCollection
-  , featureCollection2
 
   , mkSource -- internal
 ) where
@@ -213,22 +212,13 @@ mkSource s = do
 
 featureCollection
   :: ( MonadWidget t m, Ord k, Enum k, KnownNat srid
-     , FromFeatureProperties d, ToFeatureProperties d
-     , FromJSON (g v srid), ToJSON (g v srid)
-     )
-  => Dynamic t (M.Map k (FeatureT g v srid d))
-  -> m (Collection t k (FeatureT g v srid d))
-featureCollection = collectionWith toJSVal_feature fromJSVal_feature
-
-featureCollection2
-  :: ( MonadWidget t m, Ord k, Enum k, KnownNat srid
      , VectorSpace v , FromFeatureProperties d, ToFeatureProperties d
      , FromJSON (g v srid), ToJSON (g v srid)
      )
   => M.Map k (FeatureT g v srid d)
   -> Event t (M.Map k (Maybe (FeatureT g v srid d)))
   -> m (Collection t k (FeatureT g v srid d))
-featureCollection2 =
+featureCollection =
   collectionWith2 toJSVal_feature fromJSVal_feature $ \(h,f) -> do
     geom :: JSVal <- liftIO [jsu|$r=`f.getGeometry();|]
     wrapOLEvent_ "change" geom $ do
