@@ -26,6 +26,14 @@ packages:
     git: https://github.com/ghcjs/ghcjs-ffiqq.git
     commit: da31b18582542fcfceade5ef6b2aca66662b9e20
   extra-dep: true
+- location:
+    git: https://github.com/meteogrid/sigym4-geometry.git
+    commit: 08e2cd1dd1eb0ff46300c08218ab5fb3f3756c82
+  extra-dep: true
+- location:
+    git: https://github.com/meteogrid/spatial-reference.git
+    commit: de83fe1319e14937c71e82baeca3f5f3411d1a49
+  extra-dep: true
 
 extra-deps:
   - ghcjs-dom-0.2.3.1

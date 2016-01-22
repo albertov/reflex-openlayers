@@ -66,11 +66,6 @@ import GHCJS.DOM.Types hiding (Event)
 import GHCJS.Foreign.QQ
 import GHCJS.Foreign.Callback
 import Sigym4.Geometry.Types hiding (Raster, Pixel)
-import Sigym4.Geometry.Json (
-    ToFeatureProperties
-  , FromFeatureProperties
-  , toJSON_crs
-  )
 
 data TileK = TileK | ImageK
 type Tile = 'TileK
@@ -129,7 +124,7 @@ data Source (r::SourceK) (k::TileK) t where
     } -> Source Raster Image t
 
   VectorSource :: {
-      _vectorFeatures  :: Collection t key (FeatureT g v s a)
+      _vectorFeatures  :: Collection t key (Feature g a crs)
     } -> Source Vector Image t
 
 newtype JSSource = JSSource JSVal
@@ -175,7 +170,7 @@ raster :: RasterOperation o s => o -> s -> Source Raster Image t
 raster op = Raster op
 
 vectorSource
-  :: Collection t key (FeatureT g v srid a) -> Source Vector Image t
+  :: Collection t key (Feature g a crs) -> Source Vector Image t
 vectorSource = VectorSource
 
 mkSource :: MonadWidget t m => Source r k t -> m JSVal
@@ -211,13 +206,13 @@ mkSource s = do
       liftIO [jsu|$r=new ol.source.Vector({features:`_vectorFeatures});|]
 
 featureCollection
-  :: ( MonadWidget t m, Ord k, Enum k, KnownNat srid
-     , VectorSpace v , FromFeatureProperties d, ToFeatureProperties d
-     , FromJSON (g v srid), ToJSON (g v srid)
+  :: ( MonadWidget t m, Ord k, Enum k
+     , FromFeatureProperties d, ToFeatureProperties d
+     , FromJSON (g crs), ToJSON (g crs)
      )
-  => M.Map k (FeatureT g v srid d)
-  -> Event t (M.Map k (Maybe (FeatureT g v srid d)))
-  -> m (Collection t k (FeatureT g v srid d))
+  => M.Map k (Feature g d crs)
+  -> Event t (M.Map k (Maybe (Feature g d crs)))
+  -> m (Collection t k (Feature g d crs))
 featureCollection =
   collectionWith2 toJSVal_feature fromJSVal_feature $ \(h,f) -> do
     geom :: JSVal <- liftIO [jsu|$r=`f.getGeometry();|]
@@ -228,27 +223,20 @@ featureCollection =
       return $ h & geometry .~ newGeom
 
 toJSVal_feature
-  :: forall g v srid d.
-     ( KnownNat srid
-     , ToJSON (g v srid)
-     , ToFeatureProperties d
-     )
-  => FeatureT g v srid d -> IO JSVal
+  :: (ToJSON (g crs), ToFeatureProperties d) => Feature g d crs -> IO JSVal
 toJSVal_feature f = do
-  jsF <- toJSVal (toJSON_crs (Proxy::Proxy srid) f)
+  jsF <- toJSVal (toJSON f)
   [js|$r=(new ol.format.GeoJSON()).readFeature(`jsF);|]
 
 fromJSVal_feature
-  :: ( FromFeatureProperties d , FromJSON (g v srid))
-  => JSVal -> IO (Maybe (FeatureT g v srid d))
+  :: ( FromFeatureProperties d , FromJSON (g crs))
+  => JSVal -> IO (Maybe (Feature g d crs))
 fromJSVal_feature j = do
   geoJ <- [js|$r=(new ol.format.GeoJSON()).writeFeatureObject(`j);|]
   val <- fromJSVal geoJ
   return (val >>= parseMaybe parseJSON)
 
-fromJSVal_geometry
-  :: (VectorSpace v, KnownNat srid, FromJSON (g v srid))
-  => JSVal -> IO (Maybe (g v srid))
+fromJSVal_geometry :: FromJSON g => JSVal -> IO (Maybe g)
 fromJSVal_geometry j = do
   geoJ <- [js|$r=(new ol.format.GeoJSON()).writeGeometryObject(`j);|]
   val <- fromJSVal geoJ
