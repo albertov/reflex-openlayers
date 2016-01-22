@@ -50,6 +50,7 @@ library
     , Reflex.OpenLayers.Layer
     , Reflex.OpenLayers.Event
     , Reflex.OpenLayers.Collection
+    , Reflex.OpenLayers.Projection
     , Reflex.OpenLayers.Util
   ghc-prof-options: -fprof-auto
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields

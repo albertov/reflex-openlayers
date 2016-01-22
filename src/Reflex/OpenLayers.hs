@@ -35,12 +35,14 @@ module Reflex.OpenLayers (
   , module Reflex.OpenLayers.Layer -- FIXME
   , module Reflex.OpenLayers.Source --FIXME
   , module Reflex.OpenLayers.Collection
+  , module Reflex.OpenLayers.Projection
 ) where
 
 
 import Reflex.OpenLayers.Layer
 import Reflex.OpenLayers.Source
 import Reflex.OpenLayers.Collection
+import Reflex.OpenLayers.Projection
 import Reflex.OpenLayers.Util
 import Reflex.OpenLayers.Event
 

@@ -65,7 +65,7 @@ import GHCJS.Types (JSVal, IsJSVal, JSString, jsval)
 import GHCJS.DOM.Types hiding (Event)
 import GHCJS.Foreign.QQ
 import GHCJS.Foreign.Callback
-import Sigym4.Geometry.Types hiding (Raster, Pixel)
+import Sigym4.Geometry hiding (Raster, Pixel)
 
 data TileK = TileK | ImageK
 type Tile = 'TileK
