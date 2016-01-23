@@ -17,10 +17,7 @@ module Reflex.OpenLayers (
   , Map
   , View
   , Property
-  , Coordinates (..)
   , HasAttributes(..)
-  , HasX(..)
-  , HasY(..)
   , HasView (..)
   , HasResolution (..)
   , HasCenter (..)
@@ -31,11 +28,16 @@ module Reflex.OpenLayers (
   , HasUpdateSize (..)
   , olMap
   , constProperty
-
+  , Center (..)
+  , HasX (..)
+  , HasY (..)
+  , mkCenter
   , module Reflex.OpenLayers.Layer -- FIXME
   , module Reflex.OpenLayers.Source --FIXME
   , module Reflex.OpenLayers.Collection
   , module Reflex.OpenLayers.Projection
+
+  -- Re-exports
 ) where
 
 
@@ -44,20 +46,16 @@ import Reflex.OpenLayers.Source
 import Reflex.OpenLayers.Collection
 import Reflex.OpenLayers.Projection
 import Reflex.OpenLayers.Util
-import Reflex.OpenLayers.Event
 
-import Reflex.Host.Class (newEventWithTrigger)
 import Reflex
 import Reflex.Dom
 
 import Control.Lens (Lens', lens, to, makeFields, (^.), (^?), (^?!))
-import Control.Monad (liftM, void)
+import Control.Monad
 import Control.Monad.IO.Class (MonadIO(liftIO))
-import Data.ByteString (ByteString)
 import Data.Default (Default)
-import Data.Dependent.Sum (DSum (..))
+import Data.Proxy
 import qualified Data.Map as M
-import Data.Maybe (fromJust)
 
 import GHCJS.DOM.HTMLDivElement (castToHTMLDivElement)
 import GHCJS.DOM.Element (toElement)
@@ -67,36 +65,79 @@ import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types (JSVal, IsJSVal, jsval)
 import GHCJS.Foreign.QQ
 
+import Sigym4.Geometry
+
+
+
 --
 -- View
 --
+class HasPoint o a | o -> a where
+  point :: Lens' o a
 
-data Coordinates
-  = Coordinates {
-      coordinatesX :: !Double
-    , coordinatesY :: !Double
-    } deriving (Eq, Ord, Show)
-makeFields ''Coordinates
+class HasX o a | o -> a where
+  x :: Lens' o a
 
-instance PToJSVal Coordinates where
-  pToJSVal (Coordinates a b) = [jsu'|[`a, `b]|]
+class HasY o a | o -> a where
+  y :: Lens' o a
 
-instance PFromJSVal Coordinates where
-  pFromJSVal l = Coordinates [js'|`l[0]|] [js'|`l[1]|]
+newtype Center crs = Center { unCenter :: Point V2 crs}
+  deriving (Eq, Ord, Show)
+
+mkCenter :: Projection -> Double -> Double -> WithSomeCrs Center
+mkCenter (Projection crs) x y =
+  reifyCrs crs $ \(Proxy :: Proxy crs) ->
+    WithSomeCrs $ Center (Point (V2 x y) :: Point V2 crs)
+
+instance PToJSVal (Center crs) where
+  pToJSVal (Center (Point (V2 a b))) = [jsu'|[`a, `b]|]
+
+instance PFromJSVal (Center crs)  where
+  pFromJSVal l = Center $ Point $ V2 [js'|`l[0]|] [js'|`l[1]|]
+
+instance Default (Center crs) where
+  def = Center $ Point 0
+
+instance HasPoint (Center crs) (Point V2 crs) where
+  point = lens unCenter (const Center)
+
+instance HasX (Center crs) Double where
+  x = point.vertex._x
+
+instance HasY (Center crs) Double where
+  y = point.vertex._y
+
+
+
+instance Default (WithSomeCrs Center) where
+  def = WithSomeCrs (def :: Center SphericalMercator)
+
+instance HasPoint (WithSomeCrs Center) (WithSomeCrs (Point V2)) where
+  point = lens (\(WithSomeCrs (Center p)) -> WithSomeCrs p)
+               (\_ (WithSomeCrs p) -> WithSomeCrs (Center p))
+
+instance HasX (WithSomeCrs Center) Double where
+  x = point.vertex._x
+
+instance HasY (WithSomeCrs Center) Double where
+  y = point.vertex._y
+
+
 
 type Rotation    = Double
 
 data View t p
   = View {
-      _viewCenter     :: !(p t Coordinates)
+      _viewCenter     :: !(p t (WithSomeCrs Center))
     , _viewResolution :: !(p t Double)
     , _viewRotation   :: !(p t Rotation)
     }
 makeFields ''View
 
-instance Reflex t => Default (View t Property)where
+
+instance Reflex t => Default (View t Property) where
   def = View {
-      _viewCenter     = constProperty (Coordinates 0 0)
+      _viewCenter     = constProperty def
     , _viewResolution = constProperty 100000
     , _viewRotation   = constProperty 0
     }
@@ -115,7 +156,7 @@ data MapConfig t
 makeFields ''MapConfig
 
 
-instance HasCenter (MapConfig t) (Property t Coordinates) where
+instance HasCenter (MapConfig t) (Property t (WithSomeCrs Center)) where
   center = view . center
 instance HasResolution (MapConfig t) (Property t Double) where
   resolution = view . resolution
@@ -134,6 +175,7 @@ instance Reflex t => Default (MapConfig t) where
       , _mapConfigUpdateSize   = never
     }
 
+
 data Map t
   = Map {
       _mapView   :: View t Dynamic
@@ -148,14 +190,16 @@ instance PToJSVal (Map t) where
 instance ToJSVal (Map t) where
   toJSVal = return . pToJSVal
 
-instance HasCenter (Map t) (Dynamic t Coordinates) where
+instance HasCenter (Map t) (Dynamic t (WithSomeCrs Center)) where
   center = view . center
 instance HasResolution (Map t) (Dynamic t Double) where
   resolution = view . resolution
 instance HasRotation (Map t) (Dynamic t Rotation) where
   rotation = view . rotation
 
-olMap :: MonadWidget t m => MapConfig t -> m (Map t)
+
+olMap
+  :: MonadWidget t m => MapConfig t -> m (Map t)
 olMap cfg = do
   target <- liftM (unElement . toElement . castToHTMLDivElement) $
               buildEmptyElement "div" (cfg^.attributes)
@@ -169,10 +213,20 @@ olMap cfg = do
   return $ Map v (g^?!layers) m
 
 
-mkView :: MonadWidget t m => View t Property -> m (JSVal, View t Dynamic)
+mkView
+  :: forall t m. MonadWidget t m
+  => View t Property -> m (JSVal, View t Dynamic)
 mkView v = do
-  j <- liftIO [jsu|$r = new ol.View();|]
-  jv <- View <$> initProperty "center"     j (v^.center)
+  let crs = getCrs (v^.center.initialValue)
+  jsProj <- toJSVal_projection (Projection crs)
+  let build :: WithSomeCrs Center -> m JSVal
+      build wc@(WithSomeCrs c) = do
+        jsSrc <- toJSVal_projection (Projection (getCrs wc))
+        liftIO [js|$r=ol.proj.transform(`c, `jsSrc, `jsProj);|]
+      unBuild c = reifyCrs crs $ \(Proxy :: Proxy crs) ->
+        return $ WithSomeCrs (pFromJSVal c :: Center crs)
+  j <- liftIO [jsu|$r = new ol.View({projection: `jsProj});|]
+  jv <- View <$> initPropertyWith (Just unBuild) build "center" j (v^.center)
              <*> initProperty "resolution" j (v^.resolution)
              <*> initProperty "rotation"   j (v^.rotation)
   return (j,jv)

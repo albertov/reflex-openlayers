@@ -22,8 +22,10 @@ import Safe (readMay)
 main :: IO ()
 main = mainWidgetWithCss $(embedFile "static/ol.css") $ mdo
   mapWidget <- olMap $ def
-    & center.initialValue .~ Coordinates (-10997148) 4569099
+    & center.initialValue .~ mkCenter crs84 (-3.690032958984375)
+                                             40.41801452636719
     & center.setValue     .~ eCenter
+    & resolution.initialValue .~ 0.001
     & resolution.setValue .~ eResolution
     & rotation.setValue   .~ eRotation
     & layers              .~ dynLayers
