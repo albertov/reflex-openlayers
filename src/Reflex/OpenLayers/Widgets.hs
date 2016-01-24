@@ -8,6 +8,7 @@ module Reflex.OpenLayers.Widgets (
   , layerListWidget
 ) where
 
+import Reflex.OpenLayers.Projection
 import Reflex.OpenLayers.Util
 import Reflex.OpenLayers
 
@@ -96,26 +97,32 @@ layerWidget key layer = el "li" $ do
          )
 
 sourceWidget
-  :: MonadWidget t m => Property t (Source r k t) -> m (Event t (Source r k t))
+  :: MonadWidget t m
+  => Property t (WithSomeCrs (Source r k t))
+  -> m (Event t (WithSomeCrs (Source r k t)))
 sourceWidget = propertyWidget $ \case
-  s@ImageWMS{_imageWmsUrl} ->
+  WithSomeCrs (s@ImageWMS{_imageWmsUrl}) ->
     el "label" $ do
       text "URL"
       input <- htmlTextInput "url" $ def
         & widgetConfig_initialValue .~ _imageWmsUrl
         & attributes .~ (constDyn ("size" =: "60"))
-      return $ fmap (\v -> s {_imageWmsUrl=v}) (blurOrEnter input)
-  s@TileWMS{_tileWmsUrl} ->
+      return $
+        fmap (\v -> s {_imageWmsUrl=v} `asCrsOf` s) (blurOrEnter input)
+  WithSomeCrs (s@TileWMS{_tileWmsUrl}) ->
     el "label" $ do
       text "URL"
       input <- htmlTextInput "url" $ def
         & widgetConfig_initialValue .~ _tileWmsUrl
         & attributes .~ (constDyn ("size" =: "60"))
-      return $ fmap (\v -> s {_tileWmsUrl=v}) (blurOrEnter input)
-  s@MapQuest{_mapQuestLayer} ->
+      return $ fmap (\v -> s {_tileWmsUrl=v} `asCrsOf` s) (blurOrEnter input)
+  WithSomeCrs (s@MapQuest{_mapQuestLayer}) ->
     el "label" $ do
       text "Layer"
       input <- htmlDropdownStatic [minBound..maxBound] show id $ def
         & widgetConfig_initialValue .~ _mapQuestLayer
-      return $ fmap (\v -> s {_mapQuestLayer=v}) (change input)
+      return $ fmap (\v -> s {_mapQuestLayer=v} `asCrsOf` s) (change input)
   _ -> return never
+
+asCrsOf :: KnownCrs crs => a crs -> a crs -> WithSomeCrs a
+asCrsOf a _ = WithSomeCrs a

@@ -42,6 +42,7 @@ module Reflex.OpenLayers.Layer (
 import Reflex.OpenLayers.Source
 import Reflex.OpenLayers.Collection
 import Reflex.OpenLayers.Util
+import Reflex.OpenLayers.Projection
 
 import Reflex
 import Reflex.Dom
@@ -106,16 +107,16 @@ pushLayer = pushToMap
 
 data Layer t p
   = Image { _layerBase   :: LayerBase t p
-          , _layerImageSource :: p t (Source Raster Image t)
+          , _layerImageSource :: p t (WithSomeCrs (Source Raster Image t))
           }
   | Tile  { _layerBase   :: LayerBase t p
-          , _layerTileSource :: p t (Source Raster Tile t)
+          , _layerTileSource :: p t (WithSomeCrs (Source Raster Tile t))
           }
   | Group { _layerBase   :: LayerBase t p
           , _layerLayers :: Dynamic t (LayerSet (Layer t p))
           }
   | Vector { _layerBase   :: LayerBase t p
-           , _layerVectorSource :: p t (Source Vector Image t)
+           , _layerVectorSource :: p t (WithSomeCrs (Source Vector Image t))
            }
 makeFields ''Layer
 
@@ -133,13 +134,13 @@ instance HasMaxResolution (Layer t p) (p t (Maybe Double)) where
   maxResolution = base . maxResolution
 
 
-image :: Reflex t => Source Raster Image t -> Layer t Property
+image :: Reflex t => WithSomeCrs (Source Raster Image t) -> Layer t Property
 image = Image def . constProperty
 
-tile :: Reflex t => Source Raster Tile t -> Layer t Property
+tile :: Reflex t => WithSomeCrs (Source Raster Tile t) -> Layer t Property
 tile = Tile def . constProperty
 
-vector :: Reflex t => Source Vector Image t -> Layer t Property
+vector :: Reflex t => WithSomeCrs (Source Vector Image t) -> Layer t Property
 vector = Vector def . constProperty
 
 group

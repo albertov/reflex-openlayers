@@ -31,7 +31,9 @@ module Reflex.OpenLayers.Source (
   , alpha
 
   , imageWMS
+  , imageWMS'
   , tileWMS
+  , tileWMS'
   , mapQuest
   , osm
   , raster
@@ -48,6 +50,7 @@ import Reflex.Dom
 import Reflex.OpenLayers.Util
 import Reflex.OpenLayers.Event
 import Reflex.OpenLayers.Collection
+import Reflex.OpenLayers.Projection
 
 import Data.Aeson
 import Data.Aeson.Types (parseMaybe)
@@ -101,37 +104,37 @@ class RasterOperation f s | f->s, s->f where
   packSources   :: MonadWidget t m => s -> m JSVal
   operationType :: f -> String
 
-data Source (r::SourceK) (k::TileK) t where
+data Source (r::SourceK) (k::TileK) t crs where
   ImageWMS :: {
       _imageWmsUrl    :: String
     , _imageWmsParams :: M.Map String String
-    } -> Source Raster Image t
+    } -> Source Raster Image t crs
 
   TileWMS :: {
       _tileWmsUrl    :: String
     , _tileWmsParams :: M.Map String String
-    } -> Source Raster Tile t
+    } -> Source Raster Tile t crs
 
   MapQuest :: {
       _mapQuestLayer  :: MapQuestLayer
-    } -> Source Raster Tile t
+    } -> Source Raster Tile t SphericalMercator
 
-  OSM :: Source Raster Tile t
+  OSM :: Source Raster Tile t SphericalMercator
 
   Raster :: RasterOperation o s => {
       _rasterOperation :: o
     , _rasterSources   :: s
-    } -> Source Raster Image t
+    } -> Source Raster Image t crs
 
   VectorSource :: {
       _vectorFeatures  :: Collection t key (Feature g a crs)
-    } -> Source Vector Image t
+    } -> Source Vector Image t crs
 
 newtype JSSource = JSSource JSVal
   deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
 instance IsJSVal JSSource
 
-anySource :: MonadWidget t m => Source r k t -> m JSSource
+anySource :: MonadWidget t m => WithSomeCrs (Source r k t) -> m JSSource
 anySource = fmap JSSource . mkSource
 
 newtype Pixel = Pixel JSVal deriving (PFromJSVal, PToJSVal)
@@ -152,39 +155,66 @@ instance RasterOperation (Pixel -> Pixel) JSSource where
 
 
 imageWMS
-  :: String -> M.Map String String -> Source Raster Image t
-imageWMS = ImageWMS
+  :: String -> M.Map String String -> WithSomeCrs (Source Raster Image t)
+imageWMS = imageWMS' def
+
+imageWMS'
+  :: forall t. Projection -> String -> M.Map String String
+  -> WithSomeCrs (Source Raster Image t)
+imageWMS' (Projection crs) url params =
+  reifyCrs crs $ \(Proxy :: Proxy crs) ->
+    WithSomeCrs (ImageWMS url params :: Source Raster Image t crs)
 
 tileWMS
-  :: String -> M.Map String String -> Source Raster Tile t
-tileWMS = TileWMS
+  :: String -> M.Map String String -> WithSomeCrs (Source Raster Tile t)
+tileWMS = tileWMS' def
+
+tileWMS'
+  :: forall t. Projection -> String -> M.Map String String
+  -> WithSomeCrs (Source Raster Tile t)
+tileWMS' (Projection crs) url params =
+  reifyCrs crs $ \(Proxy :: Proxy crs) ->
+    WithSomeCrs (TileWMS url params :: Source Raster Tile t crs)
 
 
-mapQuest :: MapQuestLayer -> Source Raster Tile t
-mapQuest = MapQuest
+mapQuest :: MapQuestLayer -> WithSomeCrs (Source Raster Tile t)
+mapQuest = WithSomeCrs . MapQuest
 
-osm :: Source Raster Tile t
-osm = OSM
 
-raster :: RasterOperation o s => o -> s -> Source Raster Image t
-raster op = Raster op
+osm :: WithSomeCrs (Source Raster Tile t)
+osm = WithSomeCrs OSM
+
+
+raster :: RasterOperation o s => o -> s -> WithSomeCrs (Source Raster Image t)
+raster = raster' def
+
+raster'
+  :: forall o s t. RasterOperation o s
+  => Projection -> o -> s -> WithSomeCrs (Source Raster Image t)
+raster' (Projection crs) op s =
+  reifyCrs crs $ \(Proxy :: Proxy crs) ->
+    WithSomeCrs (Raster op s :: Source Raster Image t crs)
+
 
 vectorSource
-  :: Collection t key (Feature g a crs) -> Source Vector Image t
-vectorSource = VectorSource
+  :: KnownCrs crs
+  => Collection t key (Feature g a crs) -> WithSomeCrs (Source Vector Image t)
+vectorSource = WithSomeCrs . VectorSource
 
-mkSource :: MonadWidget t m => Source r k t -> m JSVal
-mkSource s = do
+mkSource :: MonadWidget t m => WithSomeCrs (Source r k t) -> m JSVal
+mkSource (WithSomeCrs (s :: Source r k t crs)) = do
   case s of
-    ImageWMS{_imageWmsUrl, _imageWmsParams} ->
+    ImageWMS{_imageWmsUrl, _imageWmsParams} -> do
+      proj <- toJSVal_projection (Projection (reflectCrs (Proxy :: Proxy crs)))
       liftIO [jsu|
         $r=new ol.source.ImageWMS(
-          {url:`_imageWmsUrl, params:`_imageWmsParams});|]
+          {url:`_imageWmsUrl, params:`_imageWmsParams, projection:`proj});|]
 
-    TileWMS{_tileWmsUrl, _tileWmsParams} ->
+    TileWMS{_tileWmsUrl, _tileWmsParams} -> do
+      proj <- toJSVal_projection (Projection (reflectCrs (Proxy :: Proxy crs)))
       liftIO [jsu|
         $r=new ol.source.TileWMS(
-          {url:`_tileWmsUrl, params:`_tileWmsParams});|]
+          {url:`_tileWmsUrl, params:`_tileWmsParams, projection:`proj});|]
 
     MapQuest{_mapQuestLayer} ->
       liftIO [jsu|$r=new ol.source.MapQuest({layer:`_mapQuestLayer});|]
@@ -203,7 +233,9 @@ mkSource s = do
                                      , operationType: `typ});|]
 
     VectorSource{_vectorFeatures} -> do
-      liftIO [jsu|$r=new ol.source.Vector({features:`_vectorFeatures});|]
+      proj <- toJSVal_projection (Projection (reflectCrs (Proxy :: Proxy crs)))
+      liftIO [jsu|$r=new ol.source.Vector({ features:`_vectorFeatures
+                                          , projection:`proj});|]
 
 featureCollection
   :: ( MonadWidget t m, Ord k, Enum k

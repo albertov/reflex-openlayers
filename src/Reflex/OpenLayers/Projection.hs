@@ -13,9 +13,11 @@ module Reflex.OpenLayers.Projection (
   , sphericalMercator
   , CRS84
   , crs84
+
+, module SpatialReference
 ) where
 
-import Sigym4.Geometry
+import SpatialReference
 
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson
@@ -32,7 +34,7 @@ newtype Projection = Projection {unProj :: Crs}
 instance Default Projection where def = sphericalMercator
 
 type SphericalMercator = Named "urn:ogc:def:crs:EPSG::3857"
-type CRS84             = Named "urn:ogc:def:crs:OGC:1.3:CRS84"
+type CRS84             = Epsg 4326
 sphericalMercator, crs84 :: Projection
 sphericalMercator = Projection (reflectCrs (Proxy :: Proxy SphericalMercator))
 crs84 = Projection (reflectCrs (Proxy :: Proxy CRS84))

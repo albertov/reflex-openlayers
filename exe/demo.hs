@@ -84,7 +84,7 @@ initialLayers = fromList
         ("LAYERS" =: "topp:states")
   , group $ constDyn $ fromList [
       tile $
-        tileWMS
+        tileWMS' crs84
         "http://demo.boundlessgeo.com/geoserver/ne/wms"
           (   "LAYERS" =: "ne:ne_10m_admin_0_countries"
            <> "TILED" =: "true")

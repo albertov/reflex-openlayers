@@ -43,6 +43,7 @@ library
     , bytestring
     , aeson
     , sigym4-geometry
+    , spatial-reference
   exposed-modules:
       Reflex.OpenLayers
     , Reflex.OpenLayers.Source
