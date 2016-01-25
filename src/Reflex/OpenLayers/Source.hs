@@ -24,6 +24,10 @@ module Reflex.OpenLayers.Source (
   , Raster
   , Vector
   , RasterOperation (..)
+  , HasUrl (..)
+  , HasFormat (..)
+  , FeatureLoader (..)
+  , FeatureFormat (..)
   , Pixel
   , red
   , green
@@ -41,6 +45,7 @@ module Reflex.OpenLayers.Source (
   , anySource
 
   , featureCollection
+  , featureLoader
 
   , mkSource -- internal
 ) where
@@ -56,7 +61,7 @@ import Data.Aeson
 import Data.Aeson.Types (parseMaybe)
 import Data.Proxy
 import Data.Word (Word8)
-import Data.Default(Default)
+import Data.Default(Default(..))
 import Data.Typeable (Typeable, cast)
 import qualified Data.Map as M
 import Control.Monad (liftM, forM_, when)
@@ -127,8 +132,27 @@ data Source (r::SourceK) (k::TileK) t crs where
     } -> Source Raster Image t crs
 
   VectorSource :: {
-      _vectorFeatures  :: Collection t key (Feature g a crs)
+      _vectorFeatures  :: Maybe (Collection t key (Feature g a crs))
+    , _vectorLoader    :: Maybe (FeatureLoader crs)
     } -> Source Vector Image t crs
+
+data FeatureFormat crs
+  = GeoJSON
+
+instance Default (FeatureFormat crs) where
+  def = GeoJSON
+
+data FeatureLoader crs
+  = FeatureLoader {
+      _featureLoaderUrl    :: String
+    , _featureLoaderFormat :: FeatureFormat crs
+    }
+makeFields ''FeatureLoader
+
+featureLoader :: String -> FeatureLoader crs
+featureLoader = flip FeatureLoader def
+
+
 
 newtype JSSource = JSSource JSVal
   deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
@@ -198,8 +222,11 @@ raster' (Projection crs) op s =
 
 vectorSource
   :: KnownCrs crs
-  => Collection t key (Feature g a crs) -> WithSomeCrs (Source Vector Image t)
-vectorSource = WithSomeCrs . VectorSource
+  => proxy crs
+  -> Maybe (Collection t key (Feature g a crs))
+  -> Maybe (FeatureLoader crs)
+  -> WithSomeCrs (Source Vector Image t)
+vectorSource _ col loader = WithSomeCrs (VectorSource col loader)
 
 mkSource :: MonadWidget t m => WithSomeCrs (Source r k t) -> m JSVal
 mkSource (WithSomeCrs (s :: Source r k t crs)) = do
@@ -232,10 +259,23 @@ mkSource (WithSomeCrs (s :: Source r k t crs)) = do
                                      , threads: 0
                                      , operationType: `typ});|]
 
-    VectorSource{_vectorFeatures} -> do
+    VectorSource{_vectorFeatures, _vectorLoader} -> do
       proj <- toJSVal_projection (Projection (reflectCrs (Proxy :: Proxy crs)))
-      liftIO [jsu|$r=new ol.source.Vector({ features:`_vectorFeatures
-                                          , projection:`proj});|]
+      liftIO $ do
+        opts :: JSVal <- [jsu|$r={projection:`proj};|]
+        case _vectorFeatures of
+          Just fs -> [jsu_|`opts['features']=`fs;|]
+          Nothing -> return()
+        case _vectorLoader of
+          Just loader -> do
+            case loader^.format of
+              GeoJSON ->
+                [jsu_|`opts['format']=new ol.format.GeoJSON({
+                  defaultDataProjection:`proj});|]
+            let u = loader^.url
+            [jsu_|`opts['url']=`u;|]
+          Nothing -> return()
+        [jsu|$r=new ol.source.Vector(`opts);|]
 
 featureCollection
   :: ( MonadWidget t m, Ord k, Enum k
