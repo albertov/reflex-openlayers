@@ -44,7 +44,7 @@ toJSVal_projection crs = do
   olProj <- liftIO $ do
     jVal <- toJSVal (toJSON crs)
     [js|$r=(new ol.format.GeoJSON()).readProjection({crs:`jVal});|]
-  if isUndefined olProj
+  if isUndefined olProj || isNull olProj
       then fail ("toJSVal_projection: openlayers did not recognize "
                  ++ show crs)
       else return olProj
@@ -52,6 +52,6 @@ toJSVal_projection crs = do
 instance FromJSVal Projection where
   fromJSVal jVal = do
     let olProj = [jsu'|$r=ol.proj.get(`jVal);|]
-    return $ if isUndefined olProj
+    return $ if isUndefined olProj || isNull olProj
       then Nothing
       else (Just (Projection (namedCrs [jsu'|$r=`olProj.getCode()|])))
