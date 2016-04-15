@@ -166,7 +166,8 @@ mkSuppressor = do
   emit <- hold True eEmit
   postGui <- askPostGui
   runWithActions <- askRunWithActions
-  let setEmit v = mapM_ (\t -> postGui $ runWithActions [t:=>v]) =<< readRef r
+  let setEmit v = mapM_ (\t -> postGui $ runWithActions [t :=> return v])
+              =<< readRef r
       suppress x = setEmit False >> x `finally` setEmit True
   return (emit, suppress)
 

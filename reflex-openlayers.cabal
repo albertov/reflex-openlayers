@@ -1,5 +1,5 @@
 Name: reflex-openlayers
-Version: 3.12.1
+Version: 3.12.2
 Synopsis: Reflex bindings to OpenLayers
 Description: Bindings to the OpenLayers JavaScript library for use with Reflex-DOM
 License: BSD3
@@ -27,10 +27,10 @@ library
   build-depends:
       base
     , ghcjs-base
-    , ghcjs-dom == 0.2.*
+    , ghcjs-dom           == 0.2.*
     , ghcjs-ffiqq
     , reflex
-    , reflex-dom
+    , reflex-dom          >= 0.3
     , reflex-dom-contrib
     , containers
     , ref-tf
