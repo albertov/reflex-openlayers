@@ -38,6 +38,8 @@ module Reflex.OpenLayers.Source (
   , imageWMS'
   , tileWMS
   , tileWMS'
+  , tileXYZ
+  , tileXYZ'
   , mapQuest
   , osm
   , raster
@@ -126,6 +128,12 @@ data Source (r::SourceK) (k::TileK) t crs where
 
   OSM :: Source Raster Tile t SphericalMercator
 
+  TileXYZ :: {
+      _tileXyzUrl        :: String
+    , _tileXyzPixelRatio :: Double
+    , _tileXyzSize       :: (Int,Int)
+    } -> Source Raster Tile t crs
+
   Raster :: RasterOperation o s => {
       _rasterOperation :: o
     , _rasterSources   :: s
@@ -200,6 +208,16 @@ tileWMS' (Projection crs) url params =
   reifyCrs crs $ \(Proxy :: Proxy crs) ->
     WithSomeCrs (TileWMS url params :: Source Raster Tile t crs)
 
+tileXYZ
+  :: String -> WithSomeCrs (Source Raster Tile t)
+tileXYZ url = tileXYZ' def url 1 (256, 256)
+
+tileXYZ'
+  :: forall t. Projection -> String -> Double -> (Int, Int)
+  -> WithSomeCrs (Source Raster Tile t)
+tileXYZ' (Projection crs) url scale size =
+  reifyCrs crs $ \(Proxy :: Proxy crs) ->
+    WithSomeCrs (TileXYZ url scale size :: Source Raster Tile t crs)
 
 mapQuest :: MapQuestLayer -> WithSomeCrs (Source Raster Tile t)
 mapQuest = WithSomeCrs . MapQuest
@@ -242,6 +260,16 @@ mkSource (WithSomeCrs (s :: Source r k t crs)) = do
       liftIO [jsu|
         $r=new ol.source.TileWMS(
           {url:`_tileWmsUrl, params:`_tileWmsParams, projection:`proj});|]
+
+    TileXYZ{_tileXyzUrl, _tileXyzPixelRatio, _tileXyzSize=(w,h)} -> do
+      proj <- toJSVal_projection (Projection (reflectCrs (Proxy :: Proxy crs)))
+      liftIO [jsu|
+        $r=new ol.source.XYZ(
+          { url:`_tileXyzUrl
+          , tileSize: [`w, `h]
+          , tilePixelRatio: `_tileXyzPixelRatio
+          , projection:`proj
+          });|]
 
     MapQuest{_mapQuestLayer} ->
       liftIO [jsu|$r=new ol.source.MapQuest({layer:`_mapQuestLayer});|]
