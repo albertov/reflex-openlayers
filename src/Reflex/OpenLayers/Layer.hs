@@ -36,6 +36,7 @@ module Reflex.OpenLayers.Layer (
   , HasLayers(..)
   , HasTileSource(..)
   , HasImageSource(..)
+  , HasTitle(..)
 ) where
 
 
@@ -83,6 +84,7 @@ data LayerBase t p = LayerBase {
     , _layerBaseExtent        :: (p t (Maybe Extent))
     , _layerBaseMinResolution :: (p t (Maybe Double))
     , _layerBaseMaxResolution :: (p t (Maybe Double))
+    , _layerBaseTitle         :: (p t (Maybe String))
     }
 makeFields ''LayerBase
 
@@ -94,6 +96,7 @@ instance Reflex t => Default (LayerBase t Property) where
      , _layerBaseExtent           = constProperty Nothing
      , _layerBaseMinResolution    = constProperty Nothing
      , _layerBaseMaxResolution    = constProperty Nothing
+     , _layerBaseTitle            = constProperty Nothing
      }
 
 type LayerSet = M.Map Int
@@ -132,6 +135,8 @@ instance HasMinResolution (Layer t p) (p t (Maybe Double)) where
   minResolution = base . minResolution
 instance HasMaxResolution (Layer t p) (p t (Maybe Double)) where
   maxResolution = base . maxResolution
+instance HasTitle (Layer t p) (p t (Maybe String)) where
+  title = base . title
 
 
 image :: Reflex t => WithSomeCrs (Source Raster Image t) -> Layer t Property
@@ -152,19 +157,19 @@ mkLayer :: MonadWidget t m => Layer t Property -> m (JSVal, Layer t Dynamic)
 mkLayer lyr = do
   case lyr of
     Image{_layerImageSource} -> do
-      j <- liftIO [jsu|$r=new ol.layer.Image();|]
+      j <- liftIO [jsu|$r=new ol.layer.Image({title:null});|]
       dynSource <-
         initPropertyWith Nothing mkSource "source" j _layerImageSource
       b <- updateBase j (lyr^.base)
       return (j, Image b dynSource)
     Tile{_layerTileSource} -> do
-      j <- liftIO [jsu|$r=new ol.layer.Tile();|]
+      j <- liftIO [jsu|$r=new ol.layer.Tile({title:null});|]
       dynSource <-
         initPropertyWith Nothing mkSource "source" j _layerTileSource
       b <- updateBase j (lyr^.base)
       return (j, Tile b dynSource)
     Vector{_layerVectorSource} -> do
-      j <- liftIO [jsu|$r=new ol.layer.Vector();|]
+      j <- liftIO [jsu|$r=new ol.layer.Vector({title:null});|]
       dynSource <-
         initPropertyWith Nothing mkSource "source" j _layerVectorSource
       b <- updateBase j (lyr^.base)
@@ -173,7 +178,7 @@ mkLayer lyr = do
       dynMkLayers <- list _layerLayers (\dL -> sample (current dL) >>= mkLayer)
       dynLayers <- mapDyn (M.map snd) dynMkLayers
       c <- collection =<< mapDyn (M.map fst) dynMkLayers
-      j <- liftIO [jsu|$r=new ol.layer.Group({layers:`c});|]
+      j <- liftIO [jsu|$r=new ol.layer.Group({title:null, layers:`c});|]
       b <- updateBase j (lyr^.base)
       return (j, Group b dynLayers)
   where
@@ -184,3 +189,4 @@ mkLayer lyr = do
                 <*> initProperty "extent" r (b^.extent)
                 <*> initProperty "minResolution" r (b^.minResolution)
                 <*> initProperty "maxResolution" r (b^.maxResolution)
+                <*> initProperty "title" r (b^.title)

@@ -4,7 +4,8 @@
 {-# LANGUAGE GADTs #-}
 
 module Reflex.OpenLayers.Widgets (
-    layerWidget
+    LayerWidget
+  , layerWidget
   , layerListWidget
 ) where
 
@@ -25,26 +26,31 @@ import Safe (readMay)
 layerListWidget
   :: MonadWidget t m
   => Dynamic t (M.Map Int (Layer t Property))
+  -> LayerWidget t m
   -> m (Dynamic t (M.Map Int (Layer t Property)))
-layerListWidget layerMap = mdo
+layerListWidget layerMap widget = mdo
   initialLayers <- sample (current layerMap)
   remover <- mapDyn (mergeWith (.) . map fst . M.elems) layerList
   dynLayerMap <- foldDyn ($) initialLayers $
     leftmost [ switchPromptlyDyn remover
              , fmap (\n -> const n) (updated layerMap)
              ]
-  layerList <- el "ul" $ listWithKey dynLayerMap layerWidget
+  layerList <- el "ul" $ listWithKey dynLayerMap (\k -> el "li" . widget k)
   mapDyn (M.map snd) layerList
 
-
-layerWidget
-  :: MonadWidget t m
-  => Int
+type LayerWidget t m
+  =  Int
   -> Dynamic t (Layer t Property)
   -> m ( Event t (LayerSet (Layer t Property) -> LayerSet (Layer t Property))
        , Layer t Property)
-layerWidget key layer = el "li" $ do
+
+layerWidget :: MonadWidget t m => LayerWidget t m
+layerWidget key layer = do
   curLayer <- sample (current layer)
+
+  _ <- dyn =<< mapDyn (maybe (return ()) (el "h1" . text))
+           =<< dynFromProp (curLayer^.title)
+
 
   eVisible <- el "label" $ do
     input <- checkbox (curLayer^.visible.initialValue) $ def
@@ -80,7 +86,7 @@ layerWidget key layer = el "li" $ do
 
   eGroupLayers <- case curLayer of
     Group{} -> do
-      dynLayers <- layerListWidget (curLayer^?!layers)
+      dynLayers <- layerListWidget (curLayer^?!layers) layerWidget
       return $ layers .~ dynLayers
     _ -> return id
 

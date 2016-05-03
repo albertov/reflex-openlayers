@@ -209,8 +209,8 @@ tileWMS' (Projection crs) url params =
     WithSomeCrs (TileWMS url params :: Source Raster Tile t crs)
 
 tileXYZ
-  :: String -> WithSomeCrs (Source Raster Tile t)
-tileXYZ url = tileXYZ' def url 1 (256, 256)
+  :: String -> Double -> WithSomeCrs (Source Raster Tile t)
+tileXYZ url scaleFactor = tileXYZ' def url scaleFactor (256, 256)
 
 tileXYZ'
   :: forall t. Projection -> String -> Double -> (Int, Int)

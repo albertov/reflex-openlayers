@@ -21,6 +21,7 @@ module Reflex.OpenLayers.Util (
   , propertyWidget
   , initProperty
   , initPropertyWith
+  , dynFromProp
   , pushToMap
   , mapDynIO
   , mkSuppressor

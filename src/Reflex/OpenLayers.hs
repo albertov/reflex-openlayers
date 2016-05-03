@@ -26,6 +26,7 @@ module Reflex.OpenLayers (
   , HasInitialValue (..)
   , HasSetValue (..)
   , HasUpdateSize (..)
+  , HasInteractions (..)
   , olMap
   , constProperty
   , Center (..)
@@ -151,6 +152,7 @@ data MapConfig t
       _mapConfig_attributes :: Dynamic t (M.Map String String)
     , _mapConfigView        :: View t Property
     , _mapConfigLayers      :: Dynamic t (LayerSet (Layer t Property))
+    , _mapConfigInteractions :: M.Map String Bool
     , _mapConfigUpdateSize  :: Event t ()
     }
 makeFields ''MapConfig
@@ -173,6 +175,7 @@ instance Reflex t => Default (MapConfig t) where
       , _mapConfigView         = def
       , _mapConfigLayers       = constDyn def
       , _mapConfigUpdateSize   = never
+      , _mapConfigInteractions = mempty
     }
 
 
@@ -205,7 +208,14 @@ olMap cfg = do
               buildEmptyElement "div" (cfg^.attributes)
   (jv, v) <- mkView (cfg^.view)
   (jg, g) <- mkLayer (group (cfg^?!layers))
-  m <- liftIO $ [jsu|$r = new ol.Map({view:`jv, layers:`jg, target:`target});|]
+  let ics = cfg^.interactions
+  m <- liftIO $ [jsu|
+    $r = new ol.Map({
+        view:`jv
+      , layers:`jg
+      , target:`target
+      , interactions : ol.interaction.defaults(`ics)
+      });|]
   postBuild <- getPostBuild
   performEvent_ $
     fmap (const (liftIO [js_|`m.updateSize();|])) $
