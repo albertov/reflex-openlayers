@@ -35,7 +35,7 @@ layerListWidget layerMap widget = mdo
     leftmost [ switchPromptlyDyn remover
              , fmap (\n -> const n) (updated layerMap)
              ]
-  layerList <- el "ul" $ listWithKey dynLayerMap (\k -> el "li" . widget k)
+  layerList <- listWithKey dynLayerMap widget
   mapDyn (M.map snd) layerList
 
 type LayerWidget t m
@@ -48,59 +48,60 @@ layerWidget :: MonadWidget t m => LayerWidget t m
 layerWidget key layer = do
   curLayer <- sample (current layer)
 
-  _ <- dyn =<< mapDyn (maybe (return ()) (el "h1" . text))
+  _ <- dyn =<< mapDyn (maybe (return ())
+                      (elClass "h4" "list-group-item-heading". text))
            =<< dynFromProp (curLayer^.title)
 
+  elClass "div" "list-group-item-text" $ do
+    eVisible <- el "label" $ do
+      input <- checkbox (curLayer^.visible.initialValue) $ def
+        & setValue .~ curLayer^.visible.setValue
+      text "Visible?"
+      return $ visible.setValue %~ leftmost . (:[_checkbox_change input])
 
-  eVisible <- el "label" $ do
-    input <- checkbox (curLayer^.visible.initialValue) $ def
-      & setValue .~ curLayer^.visible.setValue
-    text "Visible?"
-    return $ visible.setValue %~ leftmost . (:[_checkbox_change input])
+    eOpacity <- el "label" $ do
+      text "Opacity"
+      input <- htmlTextInput "number" $ def
+        & widgetConfig_initialValue .~ show (curLayer^.opacity.initialValue)
+        & setValue .~ fmap show (curLayer^.opacity.setValue)
+        & attributes .~ constDyn ("step" =: "0.05")
+      let eChange = fmapMaybe readMay (change input)
+      return $ opacity.setValue %~ leftmost . (:[eChange])
 
-  eOpacity <- el "label" $ do
-    text "Opacity"
-    input <- htmlTextInput "number" $ def
-      & widgetConfig_initialValue .~ show (curLayer^.opacity.initialValue)
-      & setValue .~ fmap show (curLayer^.opacity.setValue)
-      & attributes .~ constDyn ("step" =: "0.05")
-    let eChange = fmapMaybe readMay (change input)
-    return $ opacity.setValue %~ leftmost . (:[eChange])
+    eZIndex <- el "label" $ do
+      text "ZIndex"
+      input <- htmlTextInput "number" $ def
+        & widgetConfig_initialValue .~ show (curLayer^.zIndex.initialValue)
+        & setValue .~ fmap show (curLayer^.zIndex.setValue)
+      let eChange = fmapMaybe readMay (change input)
+      return $ zIndex.setValue %~ leftmost . (:[eChange])
 
-  eZIndex <- el "label" $ do
-    text "ZIndex"
-    input <- htmlTextInput "number" $ def
-      & widgetConfig_initialValue .~ show (curLayer^.zIndex.initialValue)
-      & setValue .~ fmap show (curLayer^.zIndex.setValue)
-    let eChange = fmapMaybe readMay (change input)
-    return $ zIndex.setValue %~ leftmost . (:[eChange])
+    eSource <- case curLayer of
+      Image{} -> do
+        eChange <- sourceWidget (curLayer^?!imageSource)
+        return $ imageSource.setValue %~ leftmost . (:[eChange])
+      Tile{} -> do
+        eChange <- sourceWidget (curLayer^?!tileSource)
+        return $ tileSource.setValue %~ leftmost . (:[eChange])
+      _ -> return id
 
-  eSource <- case curLayer of
-    Image{} -> do
-      eChange <- sourceWidget (curLayer^?!imageSource)
-      return $ imageSource.setValue %~ leftmost . (:[eChange])
-    Tile{} -> do
-      eChange <- sourceWidget (curLayer^?!tileSource)
-      return $ tileSource.setValue %~ leftmost . (:[eChange])
-    _ -> return id
+    eGroupLayers <- case curLayer of
+      Group{} -> do
+        dynLayers <- layerListWidget (curLayer^?!layers) layerWidget
+        return $ layers .~ dynLayers
+      _ -> return id
 
-  eGroupLayers <- case curLayer of
-    Group{} -> do
-      dynLayers <- layerListWidget (curLayer^?!layers) layerWidget
-      return $ layers .~ dynLayers
-    _ -> return id
+    eDelete <- button "delete"
 
-  eDelete <- button "delete"
-
-  return ( fmap (const (M.delete key)) eDelete
-         , foldl' (&) curLayer [
-                eVisible
-              , eOpacity
-              , eZIndex
-              , eSource
-              , eGroupLayers
-              ]
-         )
+    return ( fmap (const (M.delete key)) eDelete
+           , foldl' (&) curLayer [
+                  eVisible
+                , eOpacity
+                , eZIndex
+                , eSource
+                , eGroupLayers
+                ]
+           )
 
 sourceWidget
   :: MonadWidget t m

@@ -27,6 +27,7 @@ module Reflex.OpenLayers (
   , HasSetValue (..)
   , HasUpdateSize (..)
   , HasInteractions (..)
+  , HasZoomBounds (..)
   , olMap
   , constProperty
   , Center (..)
@@ -132,6 +133,8 @@ data View t p
       _viewCenter     :: !(p t (WithSomeCrs Center))
     , _viewResolution :: !(p t Double)
     , _viewRotation   :: !(p t Rotation)
+    , _viewZoomBounds :: Maybe (Int,Int) -- ^ Used instead of min/maxZoom since
+                                         --   both need to be specified
     }
 makeFields ''View
 
@@ -141,6 +144,7 @@ instance Reflex t => Default (View t Property) where
       _viewCenter     = constProperty def
     , _viewResolution = constProperty 100000
     , _viewRotation   = constProperty 0
+    , _viewZoomBounds = Nothing
     }
 
 --
@@ -164,6 +168,8 @@ instance HasResolution (MapConfig t) (Property t Double) where
   resolution = view . resolution
 instance HasRotation (MapConfig t) (Property t Rotation) where
   rotation = view . rotation
+instance HasZoomBounds (MapConfig t) (Maybe (Int,Int)) where
+  zoomBounds = view . zoomBounds
 
 instance HasAttributes (MapConfig t) where
   type Attrs (MapConfig t) = Dynamic t (M.Map String String)
@@ -235,8 +241,18 @@ mkView v = do
         liftIO [js|$r=ol.proj.transform(`c, `jsSrc, `jsProj);|]
       unBuild c = reifyCrs crs $ \(Proxy :: Proxy crs) ->
         return $ WithSomeCrs (pFromJSVal c :: Center crs)
-  j <- liftIO [jsu|$r = new ol.View({projection: `jsProj});|]
-  jv <- View <$> initPropertyWith (Just unBuild) build "center" j (v^.center)
-             <*> initProperty "resolution" j (v^.resolution)
-             <*> initProperty "rotation"   j (v^.rotation)
-  return (j,jv)
+      minz = v^.zoomBounds.to (fmap fst)
+      maxz = v^.zoomBounds.to (fmap snd)
+  j <- liftIO [jsu|
+    $r = new ol.View(
+      { projection: `jsProj
+      , minZoom: `minz || undefined
+      , maxZoom: `maxz || undefined
+      });
+    |]
+  _viewCenter <- initPropertyWith (Just unBuild) build "center" j (v^.center)
+  _viewResolution <- initProperty "resolution" j (v^.resolution)
+  _viewRotation <- initProperty "rotation"   j (v^.rotation)
+  return (j, View { _viewZoomBounds=v^.zoomBounds
+                  , ..
+                  })
