@@ -23,11 +23,13 @@ flag examples
 
 
 library
+  if !impl(ghcjs)
+    buildable: False
   hs-source-dirs: src
   build-depends:
       base
     , ghcjs-base
-    , ghcjs-dom           == 0.2.*
+    , ghcjs-dom           >= 0.2 && < 0.6
     , ghcjs-ffiqq
     , reflex
     , reflex-dom          >= 0.3
