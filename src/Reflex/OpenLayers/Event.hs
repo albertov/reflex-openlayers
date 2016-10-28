@@ -1,4 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE JavaScriptFFI #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -19,6 +20,7 @@ import Reflex.Dom
 import Reflex.Host.Class
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Dependent.Sum (DSum (..))
+import Data.Functor.Identity
 
 on :: (PToJSVal a, PToJSVal b, PFromJSVal e)
    => String -> a -> (e -> IO b) -> IO (IO ())
@@ -36,36 +38,14 @@ on_ eventName ob cb = do
   key :: JSVal <- [jsu|$r=`ob.on(`eventName, `jsCb);|]
   return ([jsu_|`ob.unByKey(`key);|] >> releaseCallback cb')
 
-wrapOLEvent
-  :: forall (m :: * -> *) t (h :: * -> *) t1 a e a1.
-     ( MonadReflexCreateTrigger t1 m, HasPostGui t h m
-     , PFromJSVal e
-     , PToJSVal a
-     , EventTrigger t1 ~ EventTrigger t
-     )
-  => String -> a -> (e -> IO a1) -> m (Event t1 a1)
-wrapOLEvent eventName ob cb = do
-  postGui <- askPostGui
-  runWithActions <- askRunWithActions
-  newEventWithTrigger $ \trig -> do
-    unsubscribe <- liftIO $ on_ eventName ob $ \e -> do
+wrapOLEvent eventName ob cb =
+  newEventWithLazyTriggerWithOnComplete $ \trig ->
+    on_ eventName ob $ \e -> do
       v <- cb e
-      postGui $ runWithActions [trig :=> return v]
-    return (liftIO unsubscribe)
+      trig v (return ())
 
-wrapOLEvent_
-  :: forall (m :: * -> *) t (h :: * -> *) t1 a a1.
-     ( HasPostGui t h m
-     , MonadReflexCreateTrigger t1 m
-     , PToJSVal a
-     , EventTrigger t1 ~ EventTrigger t
-     )
-  => String -> a -> IO a1 -> m (Event t1 a1)
-wrapOLEvent_ eventName ob cb = do
-  postGui <- askPostGui
-  runWithActions <- askRunWithActions
-  newEventWithTrigger $ \trig -> do
-    unsubscribe <- liftIO $ on_ eventName ob $ \(_::JSVal) -> do
+wrapOLEvent_ eventName ob cb =
+  newEventWithLazyTriggerWithOnComplete $ \trig ->
+    on_ eventName ob $ \(_::JSVal) -> do
       v <- cb
-      postGui $ runWithActions [trig :=> return v]
-    return (liftIO unsubscribe)
+      trig v (return ())

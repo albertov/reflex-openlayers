@@ -7,6 +7,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -208,7 +209,9 @@ instance HasRotation (Map t) (Dynamic t Rotation) where
 
 
 olMap
-  :: MonadWidget t m => MapConfig t -> m (Map t)
+  :: ( MonadWidget t m
+     , Attributes m (Dynamic t (M.Map String String)) t
+     ) => MapConfig t -> m (Map t)
 olMap cfg = do
   target <- liftM (unElement . toElement . castToHTMLDivElement) $
               buildEmptyElement "div" (cfg^.attributes)

@@ -25,7 +25,6 @@ module Reflex.OpenLayers.Util (
   , pushToMap
   , mapDynIO
   , mkSuppressor
-  , getLiftWidget
   ) where
 
 import Reflex.OpenLayers.Event
@@ -33,6 +32,7 @@ import Reflex.OpenLayers.Event
 import Reflex
 import Reflex.Host.Class
 import Reflex.Dom
+import Reflex.Dom.Internal
 import Data.Dependent.Sum (DSum (..))
 
 import Control.Monad (forM_, when, void, liftM, (>=>), (<=<))
@@ -46,11 +46,12 @@ import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Marshal (fromJSVal)
 import GHCJS.Foreign.QQ
 import GHCJS.Types
-import GHCJS.DOM.Types (toJSString)
+import GHCJS.DOM.Types (toJSString, castToHTMLDocument)
 import qualified JavaScript.Object as O
 import System.IO.Unsafe (unsafePerformIO)
 
-import GHCJS.DOM.Document (createDocumentFragment)
+import GHCJS.DOM.Document (createDocumentFragment, getBody)
+import GHCJS.DOM.Element hiding (error)
 
 
 instance PToJSVal a => PToJSVal (M.Map String a) where
@@ -122,55 +123,36 @@ propertyWidget go (Property v e) =
 
 initProperty
   :: (MonadWidget t m, PToJSVal o, PToJSVal a, PFromJSVal a)
-  => String -> o -> Property t a -> m (Dynamic t a)
+  =>  String -> o -> Property t a -> m (Dynamic t a)
 initProperty = initPropertyWith (Just (return . pFromJSVal)) return
 
 initPropertyWith
-  :: (MonadWidget t m, PToJSVal o, PToJSVal b)
+  :: forall t m o a b. (MonadWidget t m, PToJSVal o, PToJSVal b)
   => Maybe (JSVal -> m a) -> (a -> m b) -> String -> o -> Property t a
   -> m (Dynamic t a)
 initPropertyWith mUnBuild build name ob p = do
-  liftWidget <- getLiftWidget
-  liftWidget2 <- getLiftWidget
-  (newSetValue, update) <- case mUnBuild of
-    Nothing -> return (p^.setValue, set)
+  (changeWidget, update :: b -> Performable m ()) <- case mUnBuild of
+    Nothing -> return (fmap return (p^.setValue), setIfNotNull name ob)
     Just unBuild -> do
       (emit,suppress) <- mkSuppressor
       eChangeJs <- wrapOLEvent_ ("change:"++name) ob [jsu|$r=`ob.get(`name);|]
-      eChange <- performEvent $
-        fmap (liftWidget2 . unBuild) (gate emit eChangeJs)
-      return (leftmost [p^.setValue, eChange], suppress . set)
-  liftIO . update =<< build (p^.initialValue)
-  performEvent_ $ fmap (liftIO . update <=< liftWidget . build) (p^.setValue)
-  dynFromProp (p & setValue .~ newSetValue)
-  where
-    set :: PToJSVal c => c -> IO ()
-    set v = [jsu_|if(`v!==null) {`ob.set(`name, `v)};|]
+      let eChange = fmap unBuild (gate emit eChangeJs)
+      return (leftmost [fmap return (p^.setValue), eChange], suppress . setIfNotNull name ob)
+  dynUChange <- widgetHold (build (p^.initialValue)) (fmap build (p^.setValue)) 
+  performEvent_ $ fmap update (updated dynUChange)
+  widgetHold (return (p^.initialValue)) changeWidget 
 
-getLiftWidget
-  :: MonadWidget t m => m (m a -> WidgetHost m a)
-getLiftWidget = do
-  doc <- askDocument
-  runWidget <- getRunWidget
-  return $ \act -> do
-    Just df <- liftIO $ createDocumentFragment doc
-    (result, postBuild, _) <- runWidget df act
-    postBuild
-    return result
+setIfNotNull :: (MonadIO m, PToJSVal a, PToJSVal b) => String -> a -> b -> m ()
+setIfNotNull name ob v = liftIO [jsu_|if(`v!==null) {`ob.set(`name, `v)};|]
 
 
 mkSuppressor
-  :: MonadWidget t m
-  => m (Behavior t Bool, IO a -> IO a)
+  :: (MonadIO m', MonadWidget t m)
+  => m (Behavior t Bool, m' a -> m' a)
 mkSuppressor = do
-  (eEmit, r) <- newEventWithTriggerRef
+  (eEmit, setEmit) <- newTriggerEvent
   emit <- hold True eEmit
-  postGui <- askPostGui
-  runWithActions <- askRunWithActions
-  let setEmit v = mapM_ (\t -> postGui $ runWithActions [t :=> return v])
-              =<< readRef r
-      suppress x = setEmit False >> x `finally` setEmit True
-  return (emit, suppress)
+  return (emit, \x -> liftIO (setEmit False) >> x >>= \a -> liftIO (setEmit True) >> return a)
 
 pushToMap :: (Enum k, Ord k) => a -> M.Map k a -> M.Map k a
 pushToMap v m = case M.maxViewWithKey m of
