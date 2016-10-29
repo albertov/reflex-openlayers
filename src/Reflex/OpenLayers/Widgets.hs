@@ -1,4 +1,5 @@
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
@@ -14,13 +15,16 @@ import Reflex.OpenLayers.Util
 import Reflex.OpenLayers
 
 import Reflex.Dom
-import Reflex.Dom.Contrib.Widgets.Common
+import Reflex.Dom.Widget.Input
 
 import Control.Monad
 import Control.Lens ((^.), (^?), (^?!), (%~))
 import qualified Data.Map as M
 import Data.List (foldl')
 import Data.Monoid ((<>))
+import Data.String (fromString)
+import Data.Text (Text)
+import Data.Readable (fromText)
 import Safe (readMay)
 
 layerListWidget
@@ -49,7 +53,7 @@ layerWidget key layer = do
   curLayer <- sample (current layer)
 
   _ <- dyn =<< mapDyn (maybe (return ())
-                      (elClass "h4" "list-group-item-heading". text))
+                      (elClass "h4" "list-group-item-heading" . text))
            =<< dynFromProp (curLayer^.title)
 
   elClass "div" "list-group-item-text" $ do
@@ -57,23 +61,25 @@ layerWidget key layer = do
       input <- checkbox (curLayer^.visible.initialValue) $ def
         & setValue .~ curLayer^.visible.setValue
       text "Visible?"
-      return $ visible.setValue %~ leftmost . (:[_checkbox_change input])
+      return $ visible.setValue %~ leftmost . (:[input^.checkbox_change])
 
     eOpacity <- el "label" $ do
       text "Opacity"
-      input <- htmlTextInput "number" $ def
-        & widgetConfig_initialValue .~ show (curLayer^.opacity.initialValue)
-        & setValue .~ fmap show (curLayer^.opacity.setValue)
+      input <- textInput $ def
+        & textInputConfig_inputType .~ "number"
+        & textInputConfig_initialValue .~ tShow (curLayer^.opacity.initialValue)
+        & setValue .~ fmap tShow (curLayer^.opacity.setValue)
         & attributes .~ constDyn ("step" =: "0.05")
-      let eChange = fmapMaybe readMay (change input)
+      let eChange = fmapMaybe fromText (input^.textInput_input)
       return $ opacity.setValue %~ leftmost . (:[eChange])
 
     eZIndex <- el "label" $ do
       text "ZIndex"
-      input <- htmlTextInput "number" $ def
-        & widgetConfig_initialValue .~ show (curLayer^.zIndex.initialValue)
-        & setValue .~ fmap show (curLayer^.zIndex.setValue)
-      let eChange = fmapMaybe readMay (change input)
+      input <- textInput $ def
+        & textInputConfig_inputType .~ "number"
+        & textInputConfig_initialValue .~ tShow (curLayer^.zIndex.initialValue)
+        & setValue .~ fmap tShow (curLayer^.zIndex.setValue)
+      let eChange = fmapMaybe fromText (input^.textInput_input)
       return $ zIndex.setValue %~ leftmost . (:[eChange])
 
     eSource <- case curLayer of
@@ -111,25 +117,30 @@ sourceWidget = propertyWidget $ \case
   WithSomeCrs (s@ImageWMS{_imageWmsUrl}) ->
     el "label" $ do
       text "URL"
-      input <- htmlTextInput "url" $ def
-        & widgetConfig_initialValue .~ _imageWmsUrl
+      input <- textInput $ def
+        & textInputConfig_inputType .~ "url"
+        & textInputConfig_initialValue .~ _imageWmsUrl
         & attributes .~ (constDyn ("size" =: "60"))
       return $
-        fmap (\v -> s {_imageWmsUrl=v} `asCrsOf` s) (blurOrEnter input)
+        fmap (\v -> s {_imageWmsUrl=v} `asCrsOf` s) (input^.textInput_input)
   WithSomeCrs (s@TileWMS{_tileWmsUrl}) ->
     el "label" $ do
       text "URL"
-      input <- htmlTextInput "url" $ def
-        & widgetConfig_initialValue .~ _tileWmsUrl
+      input <- textInput $ def
+        & textInputConfig_inputType .~ "url"
+        & textInputConfig_initialValue .~ _tileWmsUrl
         & attributes .~ (constDyn ("size" =: "60"))
-      return $ fmap (\v -> s {_tileWmsUrl=v} `asCrsOf` s) (blurOrEnter input)
+      return $ fmap (\v -> s {_tileWmsUrl=v} `asCrsOf` s) (input^.textInput_input)
   WithSomeCrs (s@MapQuest{_mapQuestLayer}) ->
     el "label" $ do
       text "Layer"
-      input <- htmlDropdownStatic [minBound..maxBound] show id $ def
-        & widgetConfig_initialValue .~ _mapQuestLayer
-      return $ fmap (\v -> s {_mapQuestLayer=v} `asCrsOf` s) (change input)
+      let opts = constDyn (M.fromList (map (\i -> (i, tShow i)) [minBound..maxBound]))
+      input <- dropdown _mapQuestLayer opts def
+      return $ fmap (\v -> s {_mapQuestLayer=v} `asCrsOf` s) (input^.dropdown_change)
   _ -> return never
 
 asCrsOf :: KnownCrs crs => a crs -> a crs -> WithSomeCrs a
 asCrsOf a _ = WithSomeCrs a
+
+tShow :: Show a => a -> Text
+tShow = fromString . show

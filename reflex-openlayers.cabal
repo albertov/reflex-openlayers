@@ -35,6 +35,7 @@ library
     , reflex-dom >= 0.4
     , containers
     , ref-tf
+    , text
     , transformers
     , data-default
     , dependent-sum
@@ -43,6 +44,7 @@ library
     , safe
     , bytestring
     , aeson
+    , readable
     , sigym4-geometry
     , spatial-reference   >= 0.1.0.1
   exposed-modules:
@@ -68,13 +70,13 @@ executable reflex-openlayers-demo
     , lens
     , reflex
     , reflex-dom
-    , reflex-dom-contrib
     , data-default
     , reflex-openlayers
     , containers
     , transformers
     , file-embed
-    , safe
+    , readable
+    , text
   default-language: Haskell2010
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
   if !flag(examples)

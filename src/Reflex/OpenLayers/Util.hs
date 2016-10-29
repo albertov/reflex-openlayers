@@ -34,6 +34,7 @@ import Reflex.Host.Class
 import Reflex.Dom
 import Reflex.Dom.Internal
 import Data.Dependent.Sum (DSum (..))
+import Data.Text (Text)
 
 import Control.Monad (forM_, when, void, liftM, (>=>), (<=<))
 import Control.Monad.Ref (MonadRef(readRef), Ref)
@@ -54,14 +55,14 @@ import GHCJS.DOM.Document (createDocumentFragment, getBody)
 import GHCJS.DOM.Element hiding (error)
 
 
-instance PToJSVal a => PToJSVal (M.Map String a) where
+instance PToJSVal a => PToJSVal (M.Map Text a) where
   pToJSVal m = unsafePerformIO $ do
     o <- O.create
     forM_ (M.toList m) $ \(k,v) -> do
       O.setProp (toJSString k) (pToJSVal v) o
     return (jsval o)
 
-instance (Show a, PFromJSVal a) => PFromJSVal (M.Map String a) where
+instance (Show a, PFromJSVal a) => PFromJSVal (M.Map Text a) where
   pFromJSVal = M.fromList
              . maybe (error "should not happen") toAssocs
              . unsafePerformIO

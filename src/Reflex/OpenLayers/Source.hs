@@ -64,6 +64,7 @@ import Data.Aeson.Types (parseMaybe)
 import Data.Proxy
 import Data.Word (Word8)
 import Data.Default(Default(..))
+import Data.Text (Text)
 import Data.Typeable (Typeable, cast)
 import qualified Data.Map as M
 import Control.Monad (liftM, forM_, when)
@@ -72,7 +73,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
 import GHCJS.Types (JSVal, IsJSVal, JSString, jsval)
-import GHCJS.DOM.Types hiding (Event)
+import GHCJS.DOM.Types hiding (Event, Text)
 import GHCJS.Foreign.QQ
 import GHCJS.Foreign.Callback
 import Sigym4.Geometry hiding (Raster, Pixel)
@@ -89,7 +90,7 @@ data MapQuestLayer
   = OpenStreetMap
   | Satellite
   | Hybrid
-  deriving (Show, Read, Enum, Bounded, Eq)
+  deriving (Show, Read, Enum, Bounded, Eq, Ord)
 
 instance PToJSVal MapQuestLayer where
   pToJSVal OpenStreetMap = jsval ("osm" :: JSString)
@@ -109,17 +110,17 @@ instance Default MapQuestLayer where def = Satellite
 class RasterOperation f s | f->s, s->f where
   applyOp       :: f -> JSVal -> IO JSVal
   packSources   :: MonadWidget t m => s -> m JSVal
-  operationType :: f -> String
+  operationType :: f -> Text
 
 data Source (r::SourceK) (k::TileK) t crs where
   ImageWMS :: {
-      _imageWmsUrl    :: String
-    , _imageWmsParams :: M.Map String String
+      _imageWmsUrl    :: Text
+    , _imageWmsParams :: M.Map Text Text
     } -> Source Raster Image t crs
 
   TileWMS :: {
-      _tileWmsUrl    :: String
-    , _tileWmsParams :: M.Map String String
+      _tileWmsUrl    :: Text
+    , _tileWmsParams :: M.Map Text Text
     } -> Source Raster Tile t crs
 
   MapQuest :: {
@@ -129,7 +130,7 @@ data Source (r::SourceK) (k::TileK) t crs where
   OSM :: Source Raster Tile t SphericalMercator
 
   TileXYZ :: {
-      _tileXyzUrl        :: String
+      _tileXyzUrl        :: Text
     , _tileXyzPixelRatio :: Double
     , _tileXyzSize       :: (Int,Int)
     } -> Source Raster Tile t crs
@@ -152,12 +153,12 @@ instance Default (FeatureFormat crs) where
 
 data FeatureLoader crs
   = FeatureLoader {
-      _featureLoaderUrl    :: String
+      _featureLoaderUrl    :: Text
     , _featureLoaderFormat :: FeatureFormat crs
     }
 makeFields ''FeatureLoader
 
-featureLoader :: String -> FeatureLoader crs
+featureLoader :: Text -> FeatureLoader crs
 featureLoader = flip FeatureLoader def
 
 
@@ -187,33 +188,33 @@ instance RasterOperation (Pixel -> Pixel) JSSource where
 
 
 imageWMS
-  :: String -> M.Map String String -> WithSomeCrs (Source Raster Image t)
+  :: Text -> M.Map Text Text -> WithSomeCrs (Source Raster Image t)
 imageWMS = imageWMS' def
 
 imageWMS'
-  :: forall t. Projection -> String -> M.Map String String
+  :: forall t. Projection -> Text -> M.Map Text Text
   -> WithSomeCrs (Source Raster Image t)
 imageWMS' (Projection crs) url params =
   reifyCrs crs $ \(Proxy :: Proxy crs) ->
     WithSomeCrs (ImageWMS url params :: Source Raster Image t crs)
 
 tileWMS
-  :: String -> M.Map String String -> WithSomeCrs (Source Raster Tile t)
+  :: Text -> M.Map Text Text -> WithSomeCrs (Source Raster Tile t)
 tileWMS = tileWMS' def
 
 tileWMS'
-  :: forall t. Projection -> String -> M.Map String String
+  :: forall t. Projection -> Text -> M.Map Text Text
   -> WithSomeCrs (Source Raster Tile t)
 tileWMS' (Projection crs) url params =
   reifyCrs crs $ \(Proxy :: Proxy crs) ->
     WithSomeCrs (TileWMS url params :: Source Raster Tile t crs)
 
 tileXYZ
-  :: String -> Double -> WithSomeCrs (Source Raster Tile t)
+  :: Text -> Double -> WithSomeCrs (Source Raster Tile t)
 tileXYZ url scaleFactor = tileXYZ' def url scaleFactor (256, 256)
 
 tileXYZ'
-  :: forall t. Projection -> String -> Double -> (Int, Int)
+  :: forall t. Projection -> Text -> Double -> (Int, Int)
   -> WithSomeCrs (Source Raster Tile t)
 tileXYZ' (Projection crs) url scale size =
   reifyCrs crs $ \(Proxy :: Proxy crs) ->

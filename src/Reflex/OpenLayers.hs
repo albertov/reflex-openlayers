@@ -58,6 +58,7 @@ import Control.Monad
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Default (Default)
 import Data.Proxy
+import Data.Text (Text)
 import qualified Data.Map as M
 
 import GHCJS.DOM.HTMLDivElement (castToHTMLDivElement)
@@ -154,10 +155,10 @@ instance Reflex t => Default (View t Property) where
 
 data MapConfig t
   = MapConfig {
-      _mapConfig_attributes :: Dynamic t (M.Map String String)
+      _mapConfig_attributes :: Dynamic t (M.Map Text Text)
     , _mapConfigView        :: View t Property
     , _mapConfigLayers      :: Dynamic t (LayerSet (Layer t Property))
-    , _mapConfigInteractions :: M.Map String Bool
+    , _mapConfigInteractions :: M.Map Text Bool
     , _mapConfigUpdateSize  :: Event t ()
     }
 makeFields ''MapConfig
@@ -173,7 +174,7 @@ instance HasZoomBounds (MapConfig t) (Maybe (Int,Int)) where
   zoomBounds = view . zoomBounds
 
 instance HasAttributes (MapConfig t) where
-  type Attrs (MapConfig t) = Dynamic t (M.Map String String)
+  type Attrs (MapConfig t) = Dynamic t (M.Map Text Text)
   attributes = lens _mapConfig_attributes (\o v -> o {_mapConfig_attributes=v})
 
 instance Reflex t => Default (MapConfig t) where
@@ -210,7 +211,7 @@ instance HasRotation (Map t) (Dynamic t Rotation) where
 
 olMap
   :: ( MonadWidget t m
-     , Attributes m (Dynamic t (M.Map String String)) t
+     , Attributes m (Dynamic t (M.Map Text Text)) t
      ) => MapConfig t -> m (Map t)
 olMap cfg = do
   target <- liftM (unElement . toElement . castToHTMLDivElement) $

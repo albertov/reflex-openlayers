@@ -49,6 +49,7 @@ import Reflex
 import Reflex.Dom
 
 import Data.Default (Default)
+import Data.Text (Text)
 import qualified Data.Map as M
 import Control.Lens
 import Control.Monad.IO.Class (MonadIO(liftIO))
@@ -84,7 +85,7 @@ data LayerBase t p = LayerBase {
     , _layerBaseExtent        :: (p t (Maybe Extent))
     , _layerBaseMinResolution :: (p t (Maybe Double))
     , _layerBaseMaxResolution :: (p t (Maybe Double))
-    , _layerBaseTitle         :: (p t (Maybe String))
+    , _layerBaseTitle         :: (p t (Maybe Text))
     }
 makeFields ''LayerBase
 
@@ -135,7 +136,7 @@ instance HasMinResolution (Layer t p) (p t (Maybe Double)) where
   minResolution = base . minResolution
 instance HasMaxResolution (Layer t p) (p t (Maybe Double)) where
   maxResolution = base . maxResolution
-instance HasTitle (Layer t p) (p t (Maybe String)) where
+instance HasTitle (Layer t p) (p t (Maybe Text)) where
   title = base . title
 
 
