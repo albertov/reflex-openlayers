@@ -17,10 +17,6 @@ import GHCJS.Foreign.Callback (
 import GHCJS.Foreign.QQ
 import GHCJS.Types (JSVal, jsval)
 import Reflex.Dom
-import Reflex.Host.Class
-import Control.Monad.IO.Class (MonadIO(liftIO))
-import Data.Dependent.Sum (DSum (..))
-import Data.Functor.Identity
 
 on :: (PToJSVal a, PToJSVal b, PFromJSVal e)
    => String -> a -> (e -> IO b) -> IO (IO ())
@@ -38,12 +34,18 @@ on_ eventName ob cb = do
   key :: JSVal <- [jsu|$r=`ob.on(`eventName, `jsCb);|]
   return ([jsu_|`ob.unByKey(`key);|] >> releaseCallback cb')
 
+wrapOLEvent
+  :: (TriggerEvent t m, PFromJSVal ev, PToJSVal o)
+  => String -> o -> (ev -> IO a) -> m (Event t a)
 wrapOLEvent eventName ob cb =
   newEventWithLazyTriggerWithOnComplete $ \trig ->
     on_ eventName ob $ \e -> do
       v <- cb e
       trig v (return ())
 
+wrapOLEvent_
+  :: (TriggerEvent t m, PToJSVal o)
+  => String -> o -> IO a -> m (Event t a)
 wrapOLEvent_ eventName ob cb =
   newEventWithLazyTriggerWithOnComplete $ \trig ->
     on_ eventName ob $ \(_::JSVal) -> do

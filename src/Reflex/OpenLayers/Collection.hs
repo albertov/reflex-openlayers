@@ -11,7 +11,6 @@ module Reflex.OpenLayers.Collection (
   , HasItems (..)
   , collection
   , collectionWith
-  , collectionWith2
 ) where
 
 import Reflex.OpenLayers.Util
@@ -29,19 +28,19 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
-import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
+import GHCJS.Marshal.Pure (PToJSVal(pToJSVal))
 import GHCJS.Types
 import GHCJS.Foreign.QQ
 
 data Collection t k a
   = Collection {
-      _collectionJsVal :: JSVal
+      collectionJsVal :: JSVal
     , _collectionItems :: Dynamic t (M.Map k a)
     }
 makeFields ''Collection
 
 instance PToJSVal (Collection t k a) where
-  pToJSVal = _collectionJsVal
+  pToJSVal = collectionJsVal
 
 instance ToJSVal (Collection t k a) where
   toJSVal = return . pToJSVal
@@ -49,50 +48,20 @@ instance ToJSVal (Collection t k a) where
 collection
   :: (Ord k, Enum k, ToJSVal a, FromJSVal a, MonadWidget t m)
   => Dynamic t (M.Map k a) -> m (Collection t k a)
-collection = collectionWith toJSVal fromJSVal
-
-collectionWith
-  :: (Ord k, Enum k, MonadWidget t m)
-  => (a -> IO JSVal) -> (JSVal -> IO (Maybe a)) -> Dynamic t (M.Map k a)
-  -> m (Collection t k a)
-collectionWith toJS fromJS inMap = mdo
-  dynItems <- mapDynIO (mapM (\o -> toJS o >>= \jo -> return (Just o,jo)))
-              inMap
-  initial <- liftIO . toJSVal
-              =<< fmap (map snd . M.elems) (sample (current dynItems))
-  c <- liftIO [jsu|$r=new ol.Collection(`initial);|]
-  eAdd    <- wrapOLEvent "add" c (\(e::JSVal) -> [jsu|$r=`e.element|])
-  eRemove <- wrapOLEvent "remove" c (\(e::JSVal) -> [jsu|$r=`e.element|])
-  curItems <- sample (current dynItems)
-  jsOut <- mapDynIO (mapM fromJS') =<< (foldDyn ($) curItems $ mergeWith (.) [
-      attachWith (\m n -> case M.foldlWithKey (folder n) Nothing m of
-                            Just k -> M.delete k
-                            Nothing -> id
-                 ) (current jsOut) eRemove
-    , fmap (\j -> pushToMap (Nothing,j)) eAdd
-    ])
-  dynItemsOut <- mapDyn (M.map (fromMaybe fromJSErr . fst)) jsOut
-  let eOldNew = attach (current dynItems) (updated dynItems)
-  performEvent_ $ ffor eOldNew  $ \(curVals, newVals) -> liftIO $ do
-    forM_ (align curVals newVals) $ \case
-      This (_,old)                  -> [js_|`c.remove(`old);|]
-      That (_,new)                  -> [js_|`c.push(`new);|]
-      These _ _                     -> return ()
-  return $ Collection c dynItemsOut
-  where
-    fromJS' i@(Just _, _) = return i
-    fromJS' (Nothing,j)   = do
-      mH <- fromJS j
-      return (mH, j)
-    fromJSErr = error "Collection: could not convert from JS"
-    folder needle Nothing k v
-      | snd v `jEq` needle = Just k
-    folder _ acc _ _       = acc
+collection inMap = do
+  let eOldNew = attach (current inMap) (updated inMap)
+      eUpdate = ffor eOldNew  $ \(curVals, newVals) ->
+        ffor (align curVals newVals) $  \case
+          This _      -> Nothing
+          That new    -> Just new
+          These _ new -> Just new
+  initial <- sample (current inMap)
+  collectionWith toJSVal fromJSVal (const (return never)) initial eUpdate
 
 jEq :: JSVal -> JSVal -> Bool
 jEq a b = [jsu'|$r=(`a===`b);|]
 
-collectionWith2
+collectionWith
   :: forall k t m a. (Ord k, Enum k, MonadWidget t m)
   => (a -> IO JSVal)
   -> (JSVal -> IO (Maybe a))
@@ -100,7 +69,7 @@ collectionWith2
   -> M.Map k a
   -> Event t (M.Map k (Maybe a))
   -> m (Collection t k a)
-collectionWith2 toJS fromJS mkEvent initialItems eUpdate = mdo
+collectionWith toJS fromJS' mkEvent initialItems eUpdate = mdo
   initialItems2 <- mapM (\o -> liftIO (toJS o >>= \j -> return (o,j)))
                         initialItems
   initialJS <- liftIO (toJSVal (map snd (M.elems initialItems2)))
@@ -110,20 +79,19 @@ collectionWith2 toJS fromJS mkEvent initialItems eUpdate = mdo
            wrapOLEvent "add" col (\(e::JSVal) -> [jsu|$r=`e.element|])
   eDel' <- fmap (gate eS) $
            wrapOLEvent "remove" col (\(e::JSVal) -> [jsu|$r=`e.element|])
-  eAdd <- performEvent $ attachWith onAdd (current dynItems2) eAdd'
-  eDel <- performEvent $ attachWith onDel (current dynItems2) eDel'
+  eAdd <- performEvent $ attachWith onAdd (current dynItems) eAdd'
+  eDel <- performEvent $ attachWith onDel (current dynItems) eDel'
   eUpdate2 <- performEvent $
-      attachWith (onUpdate suppress col) (current dynItems2) eUpdate
+      attachWith (onUpdate suppress col) (current dynItems) eUpdate
   let eChanges = mconcat [ eDel
                          , eAdd
                          , eUpdate2
                          ]
-  dynItems2 <- liftM joinDynThroughMap $
-                    listWithKey' initialItems2 eChanges mkChild
-  dynItems <- mapDyn (M.map fst) dynItems2
-  return (Collection col dynItems)
+  dynItems <- joinDynThroughMap
+          <$> listWithKeyShallowDiff initialItems2 eChanges mkChild
+  return (Collection col (fmap (fmap fst) dynItems))
   where
-    mkChild k v eUp = do
+    mkChild _ v eUp = do
       ev <- liftM switchPromptlyDyn $
         widgetHold (mkEvent' v) (fmap mkEvent' eUp)
       holdDyn v $ leftmost [ev, eUp]
@@ -133,7 +101,7 @@ collectionWith2 toJS fromJS mkEvent initialItems eUpdate = mdo
       -> JSVal
       -> WidgetHost m (M.Map k (Maybe (a, JSVal)))
     onAdd cur v = liftIO $ do
-      h <- fmap (fromMaybe (error "could not convert from JS")) (fromJS v)
+      h <- fmap (fromMaybe (error "could not convert from JS")) (fromJS' v)
       let k = maybe (toEnum 0) (\((k',_),_) -> succ k') (M.maxViewWithKey cur)
       return (M.singleton k (Just (h,v)))
     onDel cur del = return (M.foldlWithKey folder M.empty cur)
@@ -166,8 +134,8 @@ collectionWith2 toJS fromJS mkEvent initialItems eUpdate = mdo
             return (M.insert k (Just (newH,new)) ret, Just k)
           (Nothing, Just newH) -> do
             let prevItem = do
-                  ix <- prev
-                  (_,item) <- M.lookup ix cur
+                  i <- prev
+                  (_,item) <- M.lookup i cur
                   return item
             new <- toJS newH
             case prevItem of

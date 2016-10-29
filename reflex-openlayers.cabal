@@ -1,5 +1,5 @@
 Name: reflex-openlayers
-Version: 3.12.2
+Version: 3.19.1
 Synopsis: Reflex bindings to OpenLayers
 Description: Bindings to the OpenLayers JavaScript library for use with Reflex-DOM
 License: BSD3
@@ -48,12 +48,13 @@ library
     , sigym4-geometry
     , spatial-reference   >= 0.1.0.1
   exposed-modules:
-      Reflex.OpenLayers
+      Reflex.OpenLayers.Map
     , Reflex.OpenLayers.Source
     , Reflex.OpenLayers.Widgets
     , Reflex.OpenLayers.Layer
     , Reflex.OpenLayers.Event
-    , Reflex.OpenLayers.Collection
+  other-modules:
+      Reflex.OpenLayers.Collection
     , Reflex.OpenLayers.Projection
     , Reflex.OpenLayers.Util
   ghc-prof-options: -fprof-auto

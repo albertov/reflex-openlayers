@@ -18,7 +18,6 @@
 
 module Reflex.OpenLayers.Source (
     Source (..)
-  , MapQuestLayer (..)
   , Tile
   , Image
   , Raster
@@ -40,11 +39,10 @@ module Reflex.OpenLayers.Source (
   , tileWMS'
   , tileXYZ
   , tileXYZ'
-  , mapQuest
   , osm
   , raster
-  , vectorSource
-  , anySource
+  , vector
+  , someSource
 
   , featureCollection
   , featureLoader
@@ -65,15 +63,12 @@ import Data.Proxy
 import Data.Word (Word8)
 import Data.Default(Default(..))
 import Data.Text (Text)
-import Data.Typeable (Typeable, cast)
 import qualified Data.Map as M
-import Control.Monad (liftM, forM_, when)
 import Control.Lens
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
+import Control.Monad.IO.Class (liftIO)
+import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal)
 import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
-import GHCJS.Types (JSVal, IsJSVal, JSString, jsval)
-import GHCJS.DOM.Types hiding (Event, Text)
+import GHCJS.Types (JSVal, IsJSVal, jsval)
 import GHCJS.Foreign.QQ
 import GHCJS.Foreign.Callback
 import Sigym4.Geometry hiding (Raster, Pixel)
@@ -85,27 +80,6 @@ type Image = 'ImageK
 data SourceK = RasterK | VectorK
 type Raster = 'RasterK
 type Vector = 'VectorK
-
-data MapQuestLayer
-  = OpenStreetMap
-  | Satellite
-  | Hybrid
-  deriving (Show, Read, Enum, Bounded, Eq, Ord)
-
-instance PToJSVal MapQuestLayer where
-  pToJSVal OpenStreetMap = jsval ("osm" :: JSString)
-  pToJSVal Satellite     = jsval ("sat" :: JSString)
-  pToJSVal Hybrid        = jsval ("hyb" :: JSString)
-
-instance PFromJSVal MapQuestLayer where
-  pFromJSVal s =
-    case (pFromJSVal s :: JSString) of
-      "sat" -> Satellite
-      "osm" -> OpenStreetMap
-      "hyb" -> Hybrid
-      _     -> error "pFromJSVal(MapQuestLayer): Unexpected layer name"
-
-instance Default MapQuestLayer where def = Satellite
 
 class RasterOperation f s | f->s, s->f where
   applyOp       :: f -> JSVal -> IO JSVal
@@ -122,10 +96,6 @@ data Source (r::SourceK) (k::TileK) t crs where
       _tileWmsUrl    :: Text
     , _tileWmsParams :: M.Map Text Text
     } -> Source Raster Tile t crs
-
-  MapQuest :: {
-      _mapQuestLayer  :: MapQuestLayer
-    } -> Source Raster Tile t SphericalMercator
 
   OSM :: Source Raster Tile t SphericalMercator
 
@@ -167,8 +137,8 @@ newtype JSSource = JSSource JSVal
   deriving (PToJSVal, PFromJSVal, ToJSVal, FromJSVal)
 instance IsJSVal JSSource
 
-anySource :: MonadWidget t m => WithSomeCrs (Source r k t) -> m JSSource
-anySource = fmap JSSource . mkSource
+someSource :: MonadWidget t m => WithSomeCrs (Source r k t) -> m JSSource
+someSource = fmap JSSource . mkSource
 
 newtype Pixel = Pixel JSVal deriving (PFromJSVal, PToJSVal)
 red, green, blue, alpha :: Lens' Pixel Word8
@@ -194,9 +164,9 @@ imageWMS = imageWMS' def
 imageWMS'
   :: forall t. Projection -> Text -> M.Map Text Text
   -> WithSomeCrs (Source Raster Image t)
-imageWMS' (Projection crs) url params =
+imageWMS' (Projection crs) serverUrl params =
   reifyCrs crs $ \(Proxy :: Proxy crs) ->
-    WithSomeCrs (ImageWMS url params :: Source Raster Image t crs)
+    WithSomeCrs (ImageWMS serverUrl params :: Source Raster Image t crs)
 
 tileWMS
   :: Text -> M.Map Text Text -> WithSomeCrs (Source Raster Tile t)
@@ -205,24 +175,20 @@ tileWMS = tileWMS' def
 tileWMS'
   :: forall t. Projection -> Text -> M.Map Text Text
   -> WithSomeCrs (Source Raster Tile t)
-tileWMS' (Projection crs) url params =
+tileWMS' (Projection crs) serverUrl params =
   reifyCrs crs $ \(Proxy :: Proxy crs) ->
-    WithSomeCrs (TileWMS url params :: Source Raster Tile t crs)
+    WithSomeCrs (TileWMS serverUrl params :: Source Raster Tile t crs)
 
 tileXYZ
   :: Text -> Double -> WithSomeCrs (Source Raster Tile t)
-tileXYZ url scaleFactor = tileXYZ' def url scaleFactor (256, 256)
+tileXYZ serverUrl scaleFactor = tileXYZ' def serverUrl scaleFactor (256, 256)
 
 tileXYZ'
   :: forall t. Projection -> Text -> Double -> (Int, Int)
   -> WithSomeCrs (Source Raster Tile t)
-tileXYZ' (Projection crs) url scale size =
+tileXYZ' (Projection crs) serverUrl scale size =
   reifyCrs crs $ \(Proxy :: Proxy crs) ->
-    WithSomeCrs (TileXYZ url scale size :: Source Raster Tile t crs)
-
-mapQuest :: MapQuestLayer -> WithSomeCrs (Source Raster Tile t)
-mapQuest = WithSomeCrs . MapQuest
-
+    WithSomeCrs (TileXYZ serverUrl scale size :: Source Raster Tile t crs)
 
 osm :: WithSomeCrs (Source Raster Tile t)
 osm = WithSomeCrs OSM
@@ -234,33 +200,35 @@ raster = raster' def
 raster'
   :: forall o s t. RasterOperation o s
   => Projection -> o -> s -> WithSomeCrs (Source Raster Image t)
-raster' (Projection crs) op s =
+raster' (Projection crs) operation s =
   reifyCrs crs $ \(Proxy :: Proxy crs) ->
-    WithSomeCrs (Raster op s :: Source Raster Image t crs)
+    WithSomeCrs (Raster operation s :: Source Raster Image t crs)
 
 
-vectorSource
+vector
   :: KnownCrs crs
   => proxy crs
   -> Maybe (Collection t key (Feature g a crs))
   -> Maybe (FeatureLoader crs)
   -> WithSomeCrs (Source Vector Image t)
-vectorSource _ col loader = WithSomeCrs (VectorSource col loader)
+vector _ col loader = WithSomeCrs (VectorSource col loader)
 
 mkSource :: MonadWidget t m => WithSomeCrs (Source r k t) -> m JSVal
 mkSource (WithSomeCrs (s :: Source r k t crs)) = do
   case s of
     ImageWMS{_imageWmsUrl, _imageWmsParams} -> do
       proj <- toJSVal_projection (Projection (reflectCrs (Proxy :: Proxy crs)))
+      let params = map_toJSVal _imageWmsParams
       liftIO [jsu|
         $r=new ol.source.ImageWMS(
-          {url:`_imageWmsUrl, params:`_imageWmsParams, projection:`proj});|]
+          {url:`_imageWmsUrl, params:`params, projection:`proj});|]
 
     TileWMS{_tileWmsUrl, _tileWmsParams} -> do
       proj <- toJSVal_projection (Projection (reflectCrs (Proxy :: Proxy crs)))
+      let params = map_toJSVal _tileWmsParams
       liftIO [jsu|
         $r=new ol.source.TileWMS(
-          {url:`_tileWmsUrl, params:`_tileWmsParams, projection:`proj});|]
+          {url:`_tileWmsUrl, params:`params, projection:`proj});|]
 
     TileXYZ{_tileXyzUrl, _tileXyzPixelRatio, _tileXyzSize=(w,h)} -> do
       proj <- toJSVal_projection (Projection (reflectCrs (Proxy :: Proxy crs)))
@@ -271,9 +239,6 @@ mkSource (WithSomeCrs (s :: Source r k t crs)) = do
           , tilePixelRatio: `_tileXyzPixelRatio
           , projection:`proj
           });|]
-
-    MapQuest{_mapQuestLayer} ->
-      liftIO [jsu|$r=new ol.source.MapQuest({layer:`_mapQuestLayer});|]
 
     OSM{} -> liftIO [jsu|$r=new ol.source.OSM();|]
 
@@ -315,7 +280,7 @@ featureCollection
   -> Event t (M.Map k (Maybe (Feature g d crs)))
   -> m (Collection t k (Feature g d crs))
 featureCollection =
-  collectionWith2 toJSVal_feature fromJSVal_feature $ \(h,f) -> do
+  collectionWith toJSVal_feature fromJSVal_feature $ \(h,f) -> do
     geom :: JSVal <- liftIO [jsu|$r=`f.getGeometry();|]
     wrapOLEvent_ "change" geom $ do
       geom' <- [jsu|$r=`f.getGeometry();|]

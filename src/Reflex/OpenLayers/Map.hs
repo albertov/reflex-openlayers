@@ -13,7 +13,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DataKinds #-}
 
-module Reflex.OpenLayers (
+module Reflex.OpenLayers.Map (
     MapConfig
   , Map
   , View
@@ -35,17 +35,13 @@ module Reflex.OpenLayers (
   , HasX (..)
   , HasY (..)
   , mkCenter
-  , module Reflex.OpenLayers.Layer -- FIXME
-  , module Reflex.OpenLayers.Source --FIXME
   , module Reflex.OpenLayers.Collection
   , module Reflex.OpenLayers.Projection
-
   -- Re-exports
 ) where
 
 
 import Reflex.OpenLayers.Layer
-import Reflex.OpenLayers.Source
 import Reflex.OpenLayers.Collection
 import Reflex.OpenLayers.Projection
 import Reflex.OpenLayers.Util
@@ -53,7 +49,7 @@ import Reflex.OpenLayers.Util
 import Reflex
 import Reflex.Dom
 
-import Control.Lens (Lens', lens, to, makeFields, (^.), (^?), (^?!))
+import Control.Lens (Lens', lens, to, makeFields, (^.), (^?!))
 import Control.Monad
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Default (Default)
@@ -64,9 +60,9 @@ import qualified Data.Map as M
 import GHCJS.DOM.HTMLDivElement (castToHTMLDivElement)
 import GHCJS.DOM.Element (toElement)
 import GHCJS.DOM.Types (unElement)
-import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))
+import GHCJS.Marshal (ToJSVal(toJSVal))
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
-import GHCJS.Types (JSVal, IsJSVal, jsval)
+import GHCJS.Types (JSVal)
 import GHCJS.Foreign.QQ
 
 import Sigym4.Geometry
@@ -89,9 +85,9 @@ newtype Center crs = Center { unCenter :: Point V2 crs}
   deriving (Eq, Ord, Show)
 
 mkCenter :: Projection -> Double -> Double -> WithSomeCrs Center
-mkCenter (Projection crs) x y =
+mkCenter (Projection crs) i j =
   reifyCrs crs $ \(Proxy :: Proxy crs) ->
-    WithSomeCrs $ Center (Point (V2 x y) :: Point V2 crs)
+    WithSomeCrs $ Center (Point (V2 i j) :: Point V2 crs)
 
 instance PToJSVal (Center crs) where
   pToJSVal (Center (Point (V2 a b))) = [jsu'|[`a, `b]|]
@@ -191,12 +187,12 @@ data Map t
   = Map {
       _mapView   :: View t Dynamic
     , _mapLayers :: Dynamic t (LayerSet (Layer t Dynamic))
-    , _mapJsVal  :: JSVal
+    , mapJsVal  :: JSVal
     }
 makeFields ''Map
 
 instance PToJSVal (Map t) where
-  pToJSVal = _mapJsVal
+  pToJSVal = mapJsVal
 
 instance ToJSVal (Map t) where
   toJSVal = return . pToJSVal
@@ -218,17 +214,17 @@ olMap cfg = do
               buildEmptyElement "div" (cfg^.attributes)
   (jv, v) <- mkView (cfg^.view)
   (jg, g) <- mkLayer (group (cfg^?!layers))
-  let ics = cfg^.interactions
+  let ics = map_toJSVal (cfg^.interactions)
   m <- liftIO $ [jsu|
     $r = new ol.Map({
         view:`jv
       , layers:`jg
-      , target:`target
       , interactions : ol.interaction.defaults(`ics)
-      });|]
-  postBuild <- getPostBuild
+      });
+    |]
+  postBuild <- delay 2 =<< getPostBuild --FIXME: delay is a hack
   performEvent_ $
-    fmap (const (liftIO [js_|`m.updateSize();|])) $
+    fmap (const (liftIO [js_|`m.setTarget(`target);|])) $
       leftmost [cfg^.updateSize, postBuild]
   return $ Map v (g^?!layers) m
 

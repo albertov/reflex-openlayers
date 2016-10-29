@@ -36,11 +36,12 @@ module Reflex.OpenLayers.Layer (
   , HasLayers(..)
   , HasTileSource(..)
   , HasImageSource(..)
+  , HasVectorSource(..)
   , HasTitle(..)
 ) where
 
 
-import Reflex.OpenLayers.Source
+import Reflex.OpenLayers.Source hiding (vector)
 import Reflex.OpenLayers.Collection
 import Reflex.OpenLayers.Util
 import Reflex.OpenLayers.Projection
@@ -53,7 +54,6 @@ import Data.Text (Text)
 import qualified Data.Map as M
 import Control.Lens
 import Control.Monad.IO.Class (MonadIO(liftIO))
-import GHCJS.Marshal (ToJSVal, FromJSVal)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Types
 import GHCJS.Foreign.QQ
@@ -176,12 +176,11 @@ mkLayer lyr = do
       b <- updateBase j (lyr^.base)
       return (j, Vector b dynSource)
     Group{_layerLayers} -> do
-      dynMkLayers <- list _layerLayers (\dL -> sample (current dL) >>= mkLayer)
-      dynLayers <- mapDyn (M.map snd) dynMkLayers
-      c <- collection =<< mapDyn (M.map fst) dynMkLayers
+      dynLayers <- list _layerLayers (\dL -> sample (current dL) >>= mkLayer)
+      c <- collection (fmap (M.map fst) dynLayers)
       j <- liftIO [jsu|$r=new ol.layer.Group({title:null, layers:`c});|]
       b <- updateBase j (lyr^.base)
-      return (j, Group b dynLayers)
+      return (j, Group b (fmap (M.map snd) dynLayers))
   where
     updateBase r b =
       LayerBase <$> initProperty "opacity" r (b^.opacity)

@@ -12,20 +12,17 @@ module Reflex.OpenLayers.Widgets (
 
 import Reflex.OpenLayers.Projection
 import Reflex.OpenLayers.Util
-import Reflex.OpenLayers
+import Reflex.OpenLayers.Layer
+import Reflex.OpenLayers.Source
 
 import Reflex.Dom
-import Reflex.Dom.Widget.Input
 
-import Control.Monad
-import Control.Lens ((^.), (^?), (^?!), (%~))
+import Control.Lens ((^.), (^?!), (%~))
 import qualified Data.Map as M
 import Data.List (foldl')
-import Data.Monoid ((<>))
 import Data.String (fromString)
 import Data.Text (Text)
 import Data.Readable (fromText)
-import Safe (readMay)
 
 layerListWidget
   :: MonadWidget t m
@@ -34,13 +31,13 @@ layerListWidget
   -> m (Dynamic t (M.Map Int (Layer t Property)))
 layerListWidget layerMap widget = mdo
   initialLayers <- sample (current layerMap)
-  remover <- mapDyn (mergeWith (.) . map fst . M.elems) layerList
+  let remover = fmap (mergeWith (.) . map fst . M.elems) layerList
   dynLayerMap <- foldDyn ($) initialLayers $
     leftmost [ switchPromptlyDyn remover
              , fmap (\n -> const n) (updated layerMap)
              ]
   layerList <- listWithKey dynLayerMap widget
-  mapDyn (M.map snd) layerList
+  return (fmap (M.map snd) layerList)
 
 type LayerWidget t m
   =  Int
@@ -52,9 +49,9 @@ layerWidget :: MonadWidget t m => LayerWidget t m
 layerWidget key layer = do
   curLayer <- sample (current layer)
 
-  _ <- dyn =<< mapDyn (maybe (return ())
-                      (elClass "h4" "list-group-item-heading" . text))
-           =<< dynFromProp (curLayer^.title)
+  _ <- dyn . fmap (maybe (return ())
+                  (elClass "h4" "list-group-item-heading" . text))
+   =<< dynFromProp (curLayer^.title)
 
   elClass "div" "list-group-item-text" $ do
     eVisible <- el "label" $ do
@@ -131,12 +128,6 @@ sourceWidget = propertyWidget $ \case
         & textInputConfig_initialValue .~ _tileWmsUrl
         & attributes .~ (constDyn ("size" =: "60"))
       return $ fmap (\v -> s {_tileWmsUrl=v} `asCrsOf` s) (input^.textInput_input)
-  WithSomeCrs (s@MapQuest{_mapQuestLayer}) ->
-    el "label" $ do
-      text "Layer"
-      let opts = constDyn (M.fromList (map (\i -> (i, tShow i)) [minBound..maxBound]))
-      input <- dropdown _mapQuestLayer opts def
-      return $ fmap (\v -> s {_mapQuestLayer=v} `asCrsOf` s) (input^.dropdown_change)
   _ -> return never
 
 asCrsOf :: KnownCrs crs => a crs -> a crs -> WithSomeCrs a

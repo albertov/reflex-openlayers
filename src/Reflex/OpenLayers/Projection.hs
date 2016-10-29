@@ -21,7 +21,6 @@ import SpatialReference
 
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson
-import Data.Aeson.Types (parseMaybe)
 import Data.Default (Default(def))
 import Data.Proxy
 import GHCJS.Marshal (ToJSVal(toJSVal), FromJSVal(fromJSVal))

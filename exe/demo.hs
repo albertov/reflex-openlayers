@@ -7,14 +7,15 @@
 module Main (main) where
 
 import Reflex.Dom
-import Reflex.OpenLayers
+import Reflex.OpenLayers.Map
+import Reflex.OpenLayers.Layer
+import Reflex.OpenLayers.Source
 import Reflex.OpenLayers.Widgets
 
 import Data.FileEmbed (embedFile)
 
 import Control.Monad
-import Control.Lens ((^.), (^?), (^?!), (%~))
-import qualified Data.Map as M
+import Control.Lens ((^.), (%~))
 import Data.Monoid ((<>))
 import Data.Readable (fromText)
 import Data.String (fromString)
@@ -37,7 +38,7 @@ main = mainWidgetWithCss $(embedFile "static/ol.css") $ mdo
   --dynLayers <- layerListWidget dynLayers'
 
   (eCenter, eResolution, eRotation) <- dtdd "view" $ do
-    eRotation <- dtdd "rotation" $ do
+    eRotation' <- dtdd "rotation" $ do
       curValue <- sample (current (mapWidget^.rotation))
       input <- textInput  $ def
         & textInputConfig_inputType .~ "number"
@@ -46,7 +47,7 @@ main = mainWidgetWithCss $(embedFile "static/ol.css") $ mdo
         & setValue   .~ fmap tShow (updated (mapWidget^.rotation))
       return $ fmapMaybe fromText (input^.textInput_input)
 
-    eResolution <- dtdd "resolution" $ do
+    eResolution' <- dtdd "resolution" $ do
       curValue <- sample (current (mapWidget^.resolution))
       input <- textInput $ def
         & textInputConfig_inputType .~ "number"
@@ -55,9 +56,9 @@ main = mainWidgetWithCss $(embedFile "static/ol.css") $ mdo
         & setValue   .~ fmap tShow (updated (mapWidget^.resolution))
       return $ fmapMaybe fromText (input^.textInput_input)
 
-    eCenter <- dtdd "center" $ mdo
+    eCenter' <- dtdd "center" $ mdo
       let showCenter c = tShow (c^.x) <> ", " <> tShow (c^.y)
-      dynText =<< mapDyn showCenter (mapWidget^.center)
+      dynText (fmap showCenter (mapWidget^.center))
       el "br" blank
       let applyMove = do
             pixels <- current (fmap fromText (pixelInput^.textInput_value))
@@ -78,7 +79,7 @@ main = mainWidgetWithCss $(embedFile "static/ol.css") $ mdo
         & textInputConfig_inputType .~ "number"
         & textInputConfig_initialValue .~  "10"
       return $ attachWith ($) applyMove $ leftmost [north, south, east, west]
-    return (eCenter, eResolution, eRotation)
+    return (eCenter', eResolution', eRotation')
   return ()
 
 tShow :: Show a => a -> Text
@@ -97,10 +98,8 @@ initialLayers = fromList
         "http://demo.boundlessgeo.com/geoserver/ne/wms"
           (   "LAYERS" =: "ne:ne_10m_admin_0_countries"
            <> "TILED" =: "true")
-    , tile osm
     ]
-  , tile $ mapQuest Satellite
-
+  , tile osm
   ]
 
 

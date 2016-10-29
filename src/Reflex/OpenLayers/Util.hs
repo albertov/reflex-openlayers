@@ -23,71 +23,55 @@ module Reflex.OpenLayers.Util (
   , initPropertyWith
   , dynFromProp
   , pushToMap
-  , mapDynIO
   , mkSuppressor
+  , map_toJSVal
+  , map_fromJSVal
   ) where
 
 import Reflex.OpenLayers.Event
 
 import Reflex
-import Reflex.Host.Class
 import Reflex.Dom
-import Reflex.Dom.Internal
-import Data.Dependent.Sum (DSum (..))
-import Data.Text (Text)
 
-import Control.Monad (forM_, when, void, liftM, (>=>), (<=<))
-import Control.Monad.Ref (MonadRef(readRef), Ref)
-import Control.Exception (finally)
+import Control.Monad
 import Control.Lens
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import qualified Data.Map as M
+import Data.Text (Text)
 import Data.Default (Default(..))
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Marshal (fromJSVal)
 import GHCJS.Foreign.QQ
 import GHCJS.Types
-import GHCJS.DOM.Types (toJSString, castToHTMLDocument)
+import GHCJS.DOM.Types (toJSString)
 import qualified JavaScript.Object as O
 import System.IO.Unsafe (unsafePerformIO)
 
-import GHCJS.DOM.Document (createDocumentFragment, getBody)
-import GHCJS.DOM.Element hiding (error)
 
+map_toJSVal :: PToJSVal a => M.Map Text a -> JSVal
+map_toJSVal m = unsafePerformIO $ do
+  o <- O.create
+  forM_ (M.toList m) $ \(k,v) -> do
+    O.setProp (toJSString k) (pToJSVal v) o
+  return (jsval o)
 
-instance PToJSVal a => PToJSVal (M.Map Text a) where
-  pToJSVal m = unsafePerformIO $ do
-    o <- O.create
-    forM_ (M.toList m) $ \(k,v) -> do
-      O.setProp (toJSString k) (pToJSVal v) o
-    return (jsval o)
+map_fromJSVal :: (Show a, PFromJSVal a) => JSVal -> M.Map Text a
+map_fromJSVal =
+    M.fromList
+  . maybe (error "should not happen") toAssocs
+  . unsafePerformIO
+  . fromJSVal
+  . keyValues
 
-instance (Show a, PFromJSVal a) => PFromJSVal (M.Map Text a) where
-  pFromJSVal = M.fromList
-             . maybe (error "should not happen") toAssocs
-             . unsafePerformIO
-             . fromJSVal
-             . keyValues
-
-    where
-      toAssocs [] = []
-      toAssocs (_:[]) = error "pFromJSVal: should not happen;"
-      toAssocs (k:v:r) = (pFromJSVal k, pFromJSVal v):toAssocs r
-      keyValues :: JSVal -> JSVal
-      keyValues o = [jsu'|
-        $r=[];
-        for (var k in `o) {$r.push(k); $r.push(`o[k]);}
-        |]
-
-dynInitializeWith
-  :: MonadWidget t m
-  => (a -> m b) -> Dynamic t a -> (b -> WidgetHost m ()) -> m ()
-dynInitializeWith build v f = addVoidAction . fmap f =<< dyn =<< mapDyn build v
-
-dynInitialize
-  :: MonadWidget t m
-  => Dynamic t a -> (a -> WidgetHost m ()) -> m ()
-dynInitialize = dynInitializeWith return
+  where
+    toAssocs [] = []
+    toAssocs (_:[]) = error "pFromJSVal: should not happen;"
+    toAssocs (k:v:r) = (pFromJSVal k, pFromJSVal v):toAssocs r
+    keyValues :: JSVal -> JSVal
+    keyValues o = [jsu'|
+      $r=[];
+      for (var k in `o) {$r.push(k); $r.push(`o[k]);}
+      |]
 
 data Property t a
   = Property {
@@ -119,7 +103,7 @@ dynFromProp (Property v e) = holdDyn v e
 propertyWidget
   :: MonadWidget t m => (a -> m (Event t a)) -> Property t a -> m (Event t a)
 propertyWidget go (Property v e) =
-  liftM switchPromptlyDyn $ widgetHold (go v) (fmap go e)
+  switchPromptlyDyn <$> widgetHold (go v) (fmap go e)
 
 
 initProperty
@@ -139,7 +123,9 @@ initPropertyWith mUnBuild build name ob p = do
       eChangeJs <- wrapOLEvent_ ("change:"++name) ob [jsu|$r=`ob.get(`name);|]
       let eChange = fmap unBuild (gate emit eChangeJs)
       return (leftmost [fmap return (p^.setValue), eChange], suppress . setIfNotNull name ob)
-  dynUChange <- widgetHold (build (p^.initialValue)) (fmap build (p^.setValue)) 
+  postBuild <- fmap (const (p^.initialValue)) <$> getPostBuild
+  dynUChange <- widgetHold (build (p^.initialValue))
+                           (fmap build (leftmost [postBuild, p^.setValue])) 
   performEvent_ $ fmap update (updated dynUChange)
   widgetHold (return (p^.initialValue)) changeWidget 
 
@@ -159,10 +145,3 @@ pushToMap :: (Enum k, Ord k) => a -> M.Map k a -> M.Map k a
 pushToMap v m = case M.maxViewWithKey m of
   Nothing          -> M.singleton (toEnum 0) v
   Just ((k, _), _) -> M.insert (succ k) v m
-
-
-mapDynIO :: MonadWidget t m => (a -> IO b) -> Dynamic t a -> m (Dynamic t b)
-mapDynIO f d = do
-  initial <- liftIO . f =<< sample (current d)
-  eChange <- performEvent $ fmap (liftIO . f) (updated d)
-  holdDyn initial eChange
