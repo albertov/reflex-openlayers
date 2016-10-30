@@ -24,9 +24,9 @@ module Reflex.OpenLayers.Map (
   , HasCenter (..)
   , HasRotation (..)
   , HasLayers (..)
+  , HasReady (..)
   , HasInitialValue (..)
   , HasSetValue (..)
-  , HasUpdateSize (..)
   , HasInteractions (..)
   , HasZoomBounds (..)
   , olMap
@@ -50,6 +50,7 @@ import Reflex
 import Reflex.Dom
 
 import Control.Lens (Lens', lens, to, makeFields, (^.), (^?!))
+import Control.Concurrent
 import Control.Monad
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Default (Default)
@@ -155,7 +156,6 @@ data MapConfig t
     , _mapConfigView        :: View t Property
     , _mapConfigLayers      :: Dynamic t (LayerSet (Layer t Property))
     , _mapConfigInteractions :: M.Map Text Bool
-    , _mapConfigUpdateSize  :: Event t ()
     }
 makeFields ''MapConfig
 
@@ -178,7 +178,6 @@ instance Reflex t => Default (MapConfig t) where
         _mapConfig_attributes  = constDyn mempty
       , _mapConfigView         = def
       , _mapConfigLayers       = constDyn def
-      , _mapConfigUpdateSize   = never
       , _mapConfigInteractions = mempty
     }
 
@@ -187,7 +186,8 @@ data Map t
   = Map {
       _mapView   :: View t Dynamic
     , _mapLayers :: Dynamic t (LayerSet (Layer t Dynamic))
-    , mapJsVal  :: JSVal
+    , mapJsVal   :: JSVal
+    , _mapReady  :: Event t ()
     }
 makeFields ''Map
 
@@ -210,23 +210,30 @@ olMap
      , Attributes m (Dynamic t (M.Map Text Text)) t
      ) => MapConfig t -> m (Map t)
 olMap cfg = do
-  target <- liftM (unElement . toElement . castToHTMLDivElement) $
-              buildEmptyElement "div" (cfg^.attributes)
   (jv, v) <- mkView (cfg^.view)
   (jg, g) <- mkLayer (group (cfg^?!layers))
   let ics = map_toJSVal (cfg^.interactions)
+  target <- (unElement . toElement . castToHTMLDivElement)
+        <$> buildEmptyElement "div" (cfg^.attributes)
   m <- liftIO $ [jsu|
     $r = new ol.Map({
         view:`jv
       , layers:`jg
+      , target: `target
       , interactions : ol.interaction.defaults(`ics)
       });
     |]
-  postBuild <- delay 2 =<< getPostBuild --FIXME: delay is a hack
-  performEvent_ $
-    fmap (const (liftIO [js_|`m.setTarget(`target);|])) $
-      leftmost [cfg^.updateSize, postBuild]
-  return $ Map v (g^?!layers) m
+  -- FIXME: This is a hack because when postBuild fires the element hasn't been
+  -- added to the DOM yet so it hasn't got a size for openlayers to update to.
+  -- There must be a better way to do this...
+  pb <- getPostBuild
+  eReady <- performEventAsync $ ffor pb $ const $ \cb ->
+    let loop = do
+          inDom <- [jsu|$r=document.body.contains(`target);|]
+          if not inDom then threadDelay 50000 >> loop
+                       else [jsu_|`m.updateSize();|] >> cb ()
+    in void $ liftIO $ forkIO $ loop
+  return $ Map v (g^?!layers) m eReady
 
 
 mkView

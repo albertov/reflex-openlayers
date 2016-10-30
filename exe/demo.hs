@@ -32,7 +32,7 @@ main = mainWidgetWithCss $(embedFile "static/ol.css") $ mdo
     & resolution.setValue .~ eResolution
     & rotation.setValue   .~ eRotation
     & layers              .~ dynLayers
-    & attributes          .~ constDyn ("style"=:"height:300px")
+    & attributes          .~ constDyn ("style" =: "height:300px;")
 
   dynLayers <- layerListWidget (constDyn initialLayers) layerWidget
   --dynLayers <- layerListWidget dynLayers'
@@ -92,13 +92,13 @@ initialLayers = fromList
       tileWMS
         "http://demo.boundlessgeo.com/geoserver/wms"
         ("LAYERS" =: "topp:states")
-  , group $ constDyn $ fromList [
+  , (group $ constDyn $ fromList [
       tile $
         tileWMS' crs84
         "http://demo.boundlessgeo.com/geoserver/ne/wms"
           (   "LAYERS" =: "ne:ne_10m_admin_0_countries"
            <> "TILED" =: "true")
-    ]
+    ]) & visible.initialValue .~ False
   , tile osm
   ]
 

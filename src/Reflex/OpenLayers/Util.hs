@@ -109,25 +109,33 @@ propertyWidget go (Property v e) =
 initProperty
   :: (MonadWidget t m, PToJSVal o, PToJSVal a, PFromJSVal a)
   =>  String -> o -> Property t a -> m (Dynamic t a)
-initProperty = initPropertyWith (Just (return . pFromJSVal)) return
+initProperty = initPropertyWith (Just (return . pFromJSVal)) (return . pToJSVal)
 
 initPropertyWith
-  :: forall t m o a b. (MonadWidget t m, PToJSVal o, PToJSVal b)
-  => Maybe (JSVal -> m a) -> (a -> m b) -> String -> o -> Property t a
+  :: forall t m o a. (MonadWidget t m, PToJSVal o)
+  => Maybe (JSVal -> m a) -> (a -> m JSVal) -> String -> o -> Property t a
   -> m (Dynamic t a)
-initPropertyWith mUnBuild build name ob p = do
-  (changeWidget, update :: b -> Performable m ()) <- case mUnBuild of
-    Nothing -> return (fmap return (p^.setValue), setIfNotNull name ob)
-    Just unBuild -> do
+initPropertyWith mFromJS toJS name ob p = do
+  let toJS' v = toJS v >>= \jv -> return (v, jv)
+  (eChange, update :: JSVal -> Performable m ()) <- case mFromJS of
+    Nothing ->
+      return ( fmap toJS' (p^.setValue)
+             , setIfNotNull name ob
+             )
+    Just f -> do
+      let fromJS' jv = f jv >>= \v -> return (v, jv)
       (emit,suppress) <- mkSuppressor
-      eChangeJs <- wrapOLEvent_ ("change:"++name) ob [jsu|$r=`ob.get(`name);|]
-      let eChange = fmap unBuild (gate emit eChangeJs)
-      return (leftmost [fmap return (p^.setValue), eChange], suppress . setIfNotNull name ob)
-  postBuild <- fmap (const (p^.initialValue)) <$> getPostBuild
-  dynUChange <- widgetHold (build (p^.initialValue))
-                           (fmap build (leftmost [postBuild, p^.setValue])) 
-  performEvent_ $ fmap update (updated dynUChange)
-  widgetHold (return (p^.initialValue)) changeWidget 
+      eChange <- gate emit . fmap fromJS' <$>
+                 wrapOLEvent_ ("change:"++name) ob [jsu|$r=`ob.get(`name);|]
+      return ( leftmost [fmap toJS' (p^.setValue),  eChange]
+             , suppress . setIfNotNull name ob
+             )
+  result <- flip widgetHold eChange $
+            do jv <- toJS (p^.initialValue)
+               setIfNotNull name ob jv
+               return (p^.initialValue, jv)
+  performEvent_ $ fmap (update . snd) (updated result)
+  return (fmap fst result)
 
 setIfNotNull :: (MonadIO m, PToJSVal a, PToJSVal b) => String -> a -> b -> m ()
 setIfNotNull name ob v = liftIO [jsu_|if(`v!==null) {`ob.set(`name, `v)};|]

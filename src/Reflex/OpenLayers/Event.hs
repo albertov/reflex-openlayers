@@ -7,6 +7,11 @@
 
 module Reflex.OpenLayers.Event (on, on_, wrapOLEvent, wrapOLEvent_) where
 
+import Reflex.Dom
+
+import Control.Monad
+import Control.Monad.IO.Class (MonadIO(..))
+
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal), PFromJSVal(pFromJSVal))
 import GHCJS.Foreign.Callback (
     OnBlocked(ContinueAsync)
@@ -16,7 +21,6 @@ import GHCJS.Foreign.Callback (
   )
 import GHCJS.Foreign.QQ
 import GHCJS.Types (JSVal, jsval)
-import Reflex.Dom
 
 on :: (PToJSVal a, PToJSVal b, PFromJSVal e)
    => String -> a -> (e -> IO b) -> IO (IO ())
@@ -35,19 +39,15 @@ on_ eventName ob cb = do
   return ([jsu_|`ob.unByKey(`key);|] >> releaseCallback cb')
 
 wrapOLEvent
-  :: (TriggerEvent t m, PFromJSVal ev, PToJSVal o)
+  :: (MonadIO m, TriggerEvent t m, PFromJSVal ev, PToJSVal o)
   => String -> o -> (ev -> IO a) -> m (Event t a)
-wrapOLEvent eventName ob cb =
-  newEventWithLazyTriggerWithOnComplete $ \trig ->
-    on_ eventName ob $ \e -> do
-      v <- cb e
-      trig v (return ())
+wrapOLEvent eventName ob cb = do
+  (ev,trig) <- newTriggerEvent
+  _unsubscribe <- liftIO (on_ eventName ob (trig <=< cb))
+  -- FIXME: unsubscribe not handled
+  return ev
 
 wrapOLEvent_
-  :: (TriggerEvent t m, PToJSVal o)
+  :: (MonadIO m, TriggerEvent t m, PToJSVal o)
   => String -> o -> IO a -> m (Event t a)
-wrapOLEvent_ eventName ob cb =
-  newEventWithLazyTriggerWithOnComplete $ \trig ->
-    on_ eventName ob $ \(_::JSVal) -> do
-      v <- cb
-      trig v (return ())
+wrapOLEvent_ eventName ob = wrapOLEvent eventName ob . (\f (_::JSVal) -> f)
