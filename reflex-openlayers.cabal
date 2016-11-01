@@ -53,8 +53,7 @@ library
     , Reflex.OpenLayers.Widgets
     , Reflex.OpenLayers.Layer
     , Reflex.OpenLayers.Event
-  other-modules:
-      Reflex.OpenLayers.Collection
+    , Reflex.OpenLayers.Collection
     , Reflex.OpenLayers.Projection
     , Reflex.OpenLayers.Util
   ghc-prof-options: -fprof-auto
